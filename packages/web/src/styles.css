@@ -1,0 +1,261 @@
+:root {
+  color: #f3efe6;
+  background:
+    radial-gradient(circle at top left, rgba(236, 146, 71, 0.22), transparent 28%),
+    radial-gradient(circle at 80% 0%, rgba(71, 150, 236, 0.25), transparent 25%),
+    linear-gradient(135deg, #0f1f2b 0%, #10212f 45%, #152f3a 100%);
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  line-height: 1.5;
+  font-weight: 400;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+}
+
+.shell {
+  margin: 0 auto;
+  max-width: 1200px;
+  padding: 2rem 1.25rem 4rem;
+}
+
+.hero {
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: 2fr 1fr;
+  margin-bottom: 1.5rem;
+}
+
+.hero h1 {
+  font-size: clamp(2.4rem, 5vw, 4rem);
+  line-height: 1.04;
+  margin: 0;
+  max-width: 12ch;
+}
+
+.hero-copy,
+.muted {
+  color: rgba(243, 239, 230, 0.74);
+}
+
+.eyebrow {
+  color: #f8b06b;
+  font-family: "Courier Prime", "Courier New", monospace;
+  letter-spacing: 0.14em;
+  margin: 0 0 0.4rem;
+  text-transform: uppercase;
+}
+
+.readiness-pill,
+.panel,
+.error-banner {
+  backdrop-filter: blur(16px);
+  background: rgba(10, 24, 34, 0.7);
+  border: 1px solid rgba(248, 176, 107, 0.18);
+  border-radius: 24px;
+  box-shadow: 0 18px 48px rgba(3, 9, 15, 0.25);
+}
+
+.readiness-pill {
+  align-self: start;
+  display: grid;
+  gap: 0.35rem;
+  padding: 1.25rem;
+}
+
+.readiness-pill strong {
+  font-size: 1.6rem;
+}
+
+.grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.panel {
+  padding: 1.2rem;
+}
+
+.panel-header {
+  align-items: start;
+  display: flex;
+  gap: 1rem;
+  justify-content: space-between;
+}
+
+.panel-header h2 {
+  margin: 0;
+}
+
+.panel-body {
+  margin-top: 1rem;
+}
+
+.summary-list,
+.log-list,
+.result-list,
+.stack {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.summary-list,
+.log-list,
+.result-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.summary-list li,
+.log-entry,
+.result-card,
+.chat-message {
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 18px;
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.8rem 0.9rem;
+}
+
+.chat-assistant {
+  border-left: 4px solid rgba(71, 150, 236, 0.65);
+}
+
+.chat-user {
+  border-left: 4px solid rgba(248, 176, 107, 0.65);
+}
+
+.log-warning {
+  border-left: 4px solid #f8b06b;
+}
+
+.log-error {
+  border-left: 4px solid #f06767;
+}
+
+.log-phase,
+.log-progress,
+.log-log,
+.log-done,
+.log-info {
+  border-left: 4px solid rgba(71, 150, 236, 0.65);
+}
+
+.inline-form {
+  align-items: center;
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.button-row,
+.scope-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.scope-option {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(248, 176, 107, 0.14);
+  border-radius: 999px;
+  display: inline-flex;
+  gap: 0.5rem;
+  padding: 0.45rem 0.75rem;
+}
+
+button,
+input,
+textarea,
+details {
+  color: inherit;
+}
+
+input,
+textarea {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(248, 176, 107, 0.2);
+  border-radius: 14px;
+  padding: 0.75rem 0.9rem;
+}
+
+button {
+  background: linear-gradient(135deg, #f8b06b 0%, #dd7a3f 100%);
+  border: none;
+  border-radius: 999px;
+  color: #10212f;
+  cursor: pointer;
+  font-weight: 700;
+  padding: 0.75rem 1rem;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.tool-table {
+  border-collapse: collapse;
+  font-size: 0.95rem;
+  width: 100%;
+}
+
+.tool-table th,
+.tool-table td {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 0.65rem 0.35rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.tool-table button {
+  font-size: 0.85rem;
+  padding: 0.45rem 0.7rem;
+}
+
+.tool-table input {
+  min-width: 14rem;
+}
+
+.error-banner {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+  padding: 1rem 1.25rem;
+}
+
+@media (max-width: 900px) {
+  .hero,
+  .grid {
+    grid-template-columns: 1fr;
+  }
+
+  .hero h1 {
+    max-width: none;
+  }
+
+  .inline-form {
+    grid-template-columns: 1fr;
+  }
+}

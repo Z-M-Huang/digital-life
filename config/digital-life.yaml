@@ -1,0 +1,53 @@
+persona:
+  id: primary
+  displayName: Digital Life
+
+ai:
+  model: ${OPENAI_MODEL}
+  temperature: 0.2
+  promptOverrides:
+    system: prompts/system.md
+    bootstrap: prompts/bootstrap.md
+
+safety:
+  defaults:
+    read: allow
+    write: deny
+    execute: deny
+  hardDeny:
+    - demo.deleteEverything
+
+denseMem:
+  baseUrl: ${DENSE_MEM_URL}
+  namespace: digital-life
+  timeoutMs: 8000
+
+connectors:
+  demo:
+    kind: builtin
+    enabled: true
+    source: demo
+    config:
+      repositories:
+        - id: repo-1
+          label: digital-life
+        - id: repo-2
+          label: dense-mem
+      inboxWindows:
+        - id: inbox-7d
+          label: Last 7 days
+        - id: inbox-30d
+          label: Last 30 days
+  filesystem:
+    kind: mcp
+    enabled: false
+    transport:
+      type: process
+      command: bunx
+      args:
+        - "@modelcontextprotocol/server-filesystem"
+        - ${MCP_FILESYSTEM_ROOT}
+    headers:
+      x-digital-life: local-dev
+    hardDeny:
+      - filesystem.write_file

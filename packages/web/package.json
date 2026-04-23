@@ -1,0 +1,23 @@
+{
+  "name": "@digital-life/web",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/main.tsx",
+  "types": "./src/main.tsx",
+  "exports": {
+    ".": "./src/main.tsx"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "serve": "bun src/server.ts",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@hono/node-server": "latest",
+    "hono": "latest",
+    "react": "latest",
+    "react-dom": "latest"
+  }
+}

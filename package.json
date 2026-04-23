@@ -1,0 +1,37 @@
+{
+  "name": "digital-life",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.10",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc -b --pretty false",
+    "test": "bun run --workspaces test",
+    "test:coverage": "bun run --workspaces test:coverage",
+    "check:file-size": "bun run scripts/check-file-size.ts",
+    "db:migrate": "bun run scripts/migrate.ts",
+    "dev:api": "bun --cwd packages/api dev",
+    "dev:web": "bun --cwd packages/web dev"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "latest",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@types/node": "latest",
+    "@types/pg": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "@vitejs/plugin-react": "latest",
+    "@vitest/coverage-v8": "latest",
+    "happy-dom": "latest",
+    "jsdom": "latest",
+    "pg-mem": "latest",
+    "typescript": "latest",
+    "vite": "latest",
+    "vitest": "latest"
+  }
+}

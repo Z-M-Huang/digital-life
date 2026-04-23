@@ -1,0 +1,20 @@
+{
+  "name": "@digital-life/core",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "drizzle-orm": "latest",
+    "pg": "latest",
+    "yaml": "latest",
+    "zod": "latest"
+  }
+}

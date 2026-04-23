@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "references": [
+    {
+      "path": "../core"
+    }
+  ],
+  "include": ["src", "tests", "vitest.config.ts"]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "@digital-life/connectors",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage"
+  },
+  "dependencies": {
+    "@digital-life/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "latest",
+    "ai": "latest",
+    "jiti": "latest",
+    "zod": "latest"
+  }
+}

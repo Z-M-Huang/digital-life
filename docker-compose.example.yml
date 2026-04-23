@@ -1,0 +1,199 @@
+# Committed full-stack example.
+#
+# This starts a fresh local installation of:
+# - shared Postgres
+# - shared Redis
+# - Neo4j for dense-mem
+# - dense-mem built from ../dense-mem
+# - digital-life API
+# - digital-life web console
+#
+# For local development, copy this file to docker-compose.yml and tweak the
+# commands/volumes as needed. docker-compose.yml is intentionally gitignored.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  postgres-bootstrap:
+    image: postgres:16-alpine
+    environment:
+      PGPASSWORD: postgres
+    command:
+      - "/bin/sh"
+      - "-c"
+      - |
+        until pg_isready -h postgres -U postgres -d postgres; do sleep 1; done
+        psql -v ON_ERROR_STOP=1 -h postgres -U postgres -d postgres <<'SQL'
+        SELECT 'CREATE ROLE digital_life LOGIN PASSWORD ''digital_life'''
+        WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'digital_life')\gexec
+        SELECT 'CREATE ROLE densemem LOGIN PASSWORD ''densemem'''
+        WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'densemem')\gexec
+        SELECT 'CREATE DATABASE digital_life OWNER digital_life'
+        WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'digital_life')\gexec
+        SELECT 'CREATE DATABASE densemem OWNER densemem'
+        WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'densemem')\gexec
+        SQL
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  neo4j:
+    image: neo4j:5.26-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: neo4j/densemem-dev-password
+      NEO4J_server_memory_heap_initial__size: 512m
+      NEO4J_server_memory_heap_max__size: 1g
+      NEO4J_server_memory_pagecache_size: 512m
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    volumes:
+      - neo4j-data:/data
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >
+          wget -q --spider http://127.0.0.1:7474
+          && cypher-shell -u neo4j -p densemem-dev-password 'RETURN 1' >/dev/null 2>&1
+          || exit 1
+      interval: 10s
+      timeout: 10s
+      retries: 20
+      start_period: 30s
+
+  dense-mem:
+    build:
+      context: ../dense-mem
+      dockerfile: Dockerfile
+    image: densemem:local
+    restart: unless-stopped
+    environment:
+      HTTP_ADDR: :8080
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: densemem
+      POSTGRES_PASSWORD: densemem
+      POSTGRES_DB: densemem
+      POSTGRES_SSLMODE: disable
+      REDIS_ADDR: redis:6379
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: densemem-dev-password
+      AI_API_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      AI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required for dense-mem startup}
+      AI_API_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      AI_API_EMBEDDING_DIMENSIONS: ${OPENAI_EMBEDDING_DIMENSIONS:-1536}
+    command: ["/bin/sh", "-c", "/app/migrate up && exec /app/server"]
+    ports:
+      - "8081:8080"
+    depends_on:
+      postgres-bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--output-document=/dev/null", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  digital-life:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: api
+    image: digital-life-api:local
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://digital_life:digital_life@postgres:5432/digital_life
+      REDIS_URL: redis://redis:6379
+      DENSE_MEM_URL: http://dense-mem:8080
+      DIGITAL_LIFE_CONFIG_PATH: /app/config/digital-life.yaml
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required for AI-backed services}
+      OPENAI_MODEL: gpt-5.2
+      MCP_FILESYSTEM_ROOT: /data
+      PORT: "3000"
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres-bootstrap:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dense-mem:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >
+          bun -e "const response = await fetch('http://127.0.0.1:3000/ready');
+          if (!response.ok) process.exit(1)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  digital-life-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: web
+    image: digital-life-web:local
+    restart: unless-stopped
+    environment:
+      INTERNAL_API_TARGET: http://digital-life:3000
+      PORT: "4173"
+    ports:
+      - "5173:4173"
+    depends_on:
+      digital-life:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - >
+          bun -e "const response = await fetch('http://127.0.0.1:4173/health');
+          if (!response.ok) process.exit(1)"
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  neo4j-data:
+  postgres-data:

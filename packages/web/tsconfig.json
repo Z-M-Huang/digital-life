@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "composite": true,
+    "declaration": true,
+    "jsx": "react-jsx",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "rootDir": ".",
+    "outDir": "dist"
+  },
+  "include": ["src", "tests", "vite.config.ts", "vitest.config.ts"]
+}
