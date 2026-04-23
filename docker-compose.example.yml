@@ -107,10 +107,10 @@ services:
       NEO4J_URI: bolt://neo4j:7687
       NEO4J_USER: neo4j
       NEO4J_PASSWORD: densemem-dev-password
-      AI_API_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
-      AI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required for dense-mem startup}
-      AI_API_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
-      AI_API_EMBEDDING_DIMENSIONS: ${OPENAI_EMBEDDING_DIMENSIONS:-1536}
+      AI_API_URL: ${DENSE_MEM_AI_API_URL:-https://api.openai.com/v1}
+      AI_API_KEY: ${DENSE_MEM_AI_API_KEY:?DENSE_MEM_AI_API_KEY is required for dense-mem startup}
+      AI_API_EMBEDDING_MODEL: ${DENSE_MEM_EMBEDDING_MODEL:-text-embedding-3-small}
+      AI_API_EMBEDDING_DIMENSIONS: ${DENSE_MEM_EMBEDDING_DIMENSIONS:-1536}
     command: ["/bin/sh", "-c", "/app/migrate up && exec /app/server"]
     ports:
       - "8081:8080"
@@ -142,8 +142,9 @@ services:
       REDIS_URL: redis://redis:6379
       DENSE_MEM_URL: http://dense-mem:8080
       DIGITAL_LIFE_CONFIG_PATH: /app/config/digital-life.yaml
-      OPENAI_API_KEY: ${OPENAI_API_KEY:?OPENAI_API_KEY is required for AI-backed services}
-      OPENAI_MODEL: gpt-5.2
+      DIGITAL_LIFE_AI_API_KEY: ${DIGITAL_LIFE_AI_API_KEY:-}
+      DIGITAL_LIFE_AI_BASE_URL: ${DIGITAL_LIFE_AI_BASE_URL:-}
+      DIGITAL_LIFE_AI_MODEL: ${DIGITAL_LIFE_AI_MODEL:-gpt-5.2}
       MCP_FILESYSTEM_ROOT: /data
       PORT: "3000"
     ports:

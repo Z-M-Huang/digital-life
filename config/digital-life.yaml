@@ -3,7 +3,7 @@ persona:
   displayName: Digital Life
 
 ai:
-  model: ${OPENAI_MODEL}
+  model: ${DIGITAL_LIFE_AI_MODEL}
   temperature: 0.2
   promptOverrides:
     system: prompts/system.md

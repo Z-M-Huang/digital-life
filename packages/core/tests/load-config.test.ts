@@ -15,7 +15,7 @@ persona:
   id: primary
   displayName: Digital Life
 ai:
-  model: \${OPENAI_MODEL}
+  model: \${DIGITAL_LIFE_AI_MODEL}
   temperature: 0.2
   promptOverrides:
     system: prompts/system.md
@@ -44,7 +44,7 @@ describe('loadConfigFromText', () => {
   it('parses yaml and resolves environment variables', () => {
     const config = loadConfigFromText(yamlText, {
       DENSE_MEM_URL: 'http://localhost:8081',
-      OPENAI_MODEL: 'gpt-test',
+      DIGITAL_LIFE_AI_MODEL: 'gpt-test',
     });
 
     expect(config.ai.model).toBe('gpt-test');
@@ -55,7 +55,7 @@ describe('loadConfigFromText', () => {
   it('collects hard deny tool ids from root and connectors', () => {
     const config = loadConfigFromText(yamlText, {
       DENSE_MEM_URL: 'http://localhost:8081',
-      OPENAI_MODEL: 'gpt-test',
+      DIGITAL_LIFE_AI_MODEL: 'gpt-test',
     });
 
     const denied = collectHardDeniedToolIds(config);
@@ -66,7 +66,7 @@ describe('loadConfigFromText', () => {
   it('throws when an environment variable is missing', () => {
     expect(() =>
       loadConfigFromText(yamlText, {
-        OPENAI_MODEL: 'gpt-test',
+        DIGITAL_LIFE_AI_MODEL: 'gpt-test',
       }),
     ).toThrow('Missing environment variable: DENSE_MEM_URL');
   });
@@ -86,7 +86,7 @@ persona:
   id: primary
   displayName: Digital Life
 ai:
-  model: \${OPENAI_MODEL}
+  model: \${DIGITAL_LIFE_AI_MODEL}
   promptOverrides:
     system: prompts/system.md
 safety:
@@ -120,7 +120,7 @@ connectors:
 
     const config = await loadConfig(join(root, 'digital-life.yaml'), {
       DENSE_MEM_URL: 'http://localhost:8081',
-      OPENAI_MODEL: 'gpt-test',
+      DIGITAL_LIFE_AI_MODEL: 'gpt-test',
     });
 
     expect(config.ai.promptOverrides.system).toBe(join(root, 'prompts/system.md'));
@@ -152,7 +152,7 @@ persona:
   id: primary
   displayName: Digital Life
 ai:
-  model: \${OPENAI_MODEL}
+  model: \${DIGITAL_LIFE_AI_MODEL}
   promptOverrides:
     system: prompts/missing.md
 safety:
@@ -170,7 +170,7 @@ connectors: {}
     await expect(
       loadConfig(join(root, 'digital-life.yaml'), {
         DENSE_MEM_URL: 'http://localhost:8081',
-        OPENAI_MODEL: 'gpt-test',
+        DIGITAL_LIFE_AI_MODEL: 'gpt-test',
       }),
     ).rejects.toThrow('Prompt override "system" could not be loaded');
   });

@@ -43,7 +43,7 @@
 - [`docker-compose.yml`](/app/digital-life/docker-compose.yml) is the local development version of that stack. It runs the same services but keeps the `digital-life` API and web console in watch mode with bind mounts.
 - Both Compose files now declare healthchecks for `postgres`, `redis`, `neo4j`, `dense-mem`, `digital-life`, and the web console.
 - The `digital-life` container runs `bun run db:migrate` from its entrypoint before the API process starts, so a fresh stack initializes runtime tables automatically.
-- `dense-mem` requires OpenAI-compatible embedding settings at startup. Copy [`.env.example`](/app/digital-life/.env.example) to `.env` and set `OPENAI_API_KEY` before running either Compose stack.
+- `digital-life` model settings and `dense-mem` embedding settings are intentionally separate. Copy [`.env.example`](/app/digital-life/.env.example) to `.env`, set `DIGITAL_LIFE_AI_MODEL`, and provide `DENSE_MEM_AI_API_KEY` plus the matching dense-mem embedding provider settings before running either Compose stack.
 - [`Dockerfile`](/app/digital-life/Dockerfile) exposes three build targets:
   - `workspace` for dev/watch containers
   - `api` for the production-style API container
