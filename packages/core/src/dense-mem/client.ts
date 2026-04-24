@@ -4,14 +4,8 @@ export type DenseMemFact = {
   provenance: Record<string, unknown>;
 };
 
-export type DenseMemWriteRequest = {
-  fragments: DenseMemFact[];
-  namespace: string;
-};
-
 export type DenseMemClient = {
   healthCheck: () => Promise<boolean>;
-  writeFragments: (request: DenseMemWriteRequest) => Promise<void>;
 };
 
 export const createDenseMemClient = ({
@@ -41,19 +35,6 @@ export const createDenseMemClient = ({
     async healthCheck() {
       const response = await withTimeout(`${baseUrl}/health`);
       return response.ok;
-    },
-    async writeFragments(request) {
-      const response = await withTimeout(`${baseUrl}/v1/fragments`, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify(request),
-      });
-
-      if (!response.ok) {
-        throw new Error(`dense-mem write failed: ${response.status}`);
-      }
     },
   };
 };

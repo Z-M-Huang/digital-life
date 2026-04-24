@@ -40,10 +40,16 @@ const sseTransportSchema = z.object({
   headers: recordOfString.default({}),
 });
 
+const streamableHttpTransportSchema = z.object({
+  type: z.literal('streamable-http'),
+  url: envInterpolatedString,
+  headers: recordOfString.default({}),
+});
+
 const mcpConnectorSchema = z.object({
   kind: z.literal('mcp'),
   enabled: z.boolean().default(true),
-  transport: z.union([processTransportSchema, sseTransportSchema]),
+  transport: z.union([processTransportSchema, sseTransportSchema, streamableHttpTransportSchema]),
   headers: recordOfString.default({}),
   hardDeny: z.array(z.string()).default([]),
 });
@@ -74,6 +80,7 @@ export const digitalLifeConfigSchema = z.object({
   }),
   denseMem: z.object({
     baseUrl: z.string().url(),
+    apiKey: z.string().min(1),
     namespace: z.string().min(1),
     timeoutMs: z.number().int().positive().default(8000),
   }),

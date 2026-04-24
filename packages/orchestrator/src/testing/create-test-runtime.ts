@@ -24,7 +24,8 @@ export const createTestConfig = (): DigitalLifeConfig => ({
     hardDeny: [],
   },
   denseMem: {
-    baseUrl: 'http://localhost:8081',
+    apiKey: 'test-api-key',
+    baseUrl: 'http://localhost:8080',
     namespace: 'digital-life',
     timeoutMs: 5000,
   },
@@ -43,20 +44,55 @@ export const createTestConfig = (): DigitalLifeConfig => ({
   },
 });
 
-export const createTestRuntime = () =>
-  createRuntime({
-    config: createTestConfig(),
+export const createTestRuntime = () => {
+  const config = createTestConfig();
+  return createRuntime({
+    bridgeFactory: async () => ({
+      async close() {
+        return undefined;
+      },
+      async startupCheck() {
+        return { ok: true, messages: [] };
+      },
+      async callTool() {
+        return { id: 'test-memory', status: 'created' };
+      },
+      async listTools() {
+        return [
+          {
+            description: 'Persist memory',
+            inputSchema: { type: 'object' },
+            name: 'save_memory',
+          },
+        ];
+      },
+    }),
+    config: {
+      ...config,
+      connectors: {
+        ...config.connectors,
+        'dense-memory': {
+          enabled: true,
+          hardDeny: [],
+          headers: {},
+          kind: 'mcp',
+          transport: {
+            headers: { authorization: 'Bearer test-api-key' },
+            type: 'streamable-http',
+            url: 'http://dense-mem.local/mcp',
+          },
+        },
+      },
+    },
     denseMemClient: createTestDenseMemClient(),
     knowledgeRepository: createInMemoryKnowledgeRepository(),
     reflectionRepository: createInMemoryReflectionRepository(),
     repository: createInMemoryRuntimeStateRepository(),
   });
+};
 
 export const createTestDenseMemClient = (): DenseMemClient => ({
   async healthCheck() {
     return true;
-  },
-  async writeFragments() {
-    return undefined;
   },
 });

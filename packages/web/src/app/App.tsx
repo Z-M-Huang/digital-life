@@ -90,11 +90,11 @@ export const App = () => {
           <ConnectorScopePanel connectors={data.connectors} onSaveScope={saveScope} />
         </SectionCard>
 
-        <SectionCard eyebrow="Tools" title="Runtime Policy">
+        <SectionCard className="panel-wide" eyebrow="Tools" title="Runtime Policy">
           <ToolTable onPatchPolicy={patchToolPolicy} tools={data.tools} />
         </SectionCard>
 
-        <SectionCard eyebrow="Learning" title="Maintenance Runs">
+        <SectionCard className="panel-wide" eyebrow="Learning" title="Maintenance Runs">
           <p>Configured connectors: {data.dashboard.connectors}</p>
           <p>Scoped connectors: {data.dashboard.scopedConnectors}</p>
           <p>Total tools: {data.dashboard.tools}</p>

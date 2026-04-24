@@ -96,7 +96,6 @@ describe('service edge cases', () => {
     const repository = createInMemoryRuntimeStateRepository();
     const denseMemClient: DenseMemClient = {
       healthCheck: vi.fn(async () => false),
-      writeFragments: vi.fn(async () => undefined),
     };
     const connector = {
       id: 'demo',

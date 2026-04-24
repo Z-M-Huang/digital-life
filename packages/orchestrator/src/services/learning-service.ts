@@ -77,10 +77,9 @@ export class LearningService {
           throw new Error('dense-mem health check failed before fragment write.');
         }
 
-        await this.denseMemClient.writeFragments({
-          namespace: this.config.denseMem.namespace,
-          fragments: consolidatedFragments.map(({ sourceCount, ...fragment }) => fragment),
-        });
+        await this.writeDenseMemFragments(
+          consolidatedFragments.map(({ sourceCount: _sourceCount, ...fragment }) => fragment),
+        );
         await this.knowledgeService.persistFacts(run.id, consolidatedFragments);
         await this.appendEvent(run.id, 'log', {
           fragmentsWritten: consolidatedFragments.length,
@@ -141,6 +140,32 @@ export class LearningService {
 
   async listRuns(): Promise<LearningRunRecord[]> {
     return this.repository.listLearningRuns();
+  }
+
+  private async writeDenseMemFragments(
+    fragments: Array<{ id: string; content: string; provenance: Record<string, unknown> }>,
+  ): Promise<void> {
+    const saveMemoryToolId = 'dense-memory.save_memory';
+    if (!this.registry.getTool(saveMemoryToolId)) {
+      throw new Error('dense-mem MCP save_memory tool is not configured.');
+    }
+
+    for (const fragment of fragments) {
+      await this.registry.invoke(
+        saveMemoryToolId,
+        {
+          content: fragment.content,
+          idempotency_key: fragment.id,
+          metadata: {
+            namespace: this.config.denseMem.namespace,
+            provenance: fragment.provenance,
+          },
+          source: this.config.denseMem.namespace,
+          source_type: 'observation',
+        },
+        'maintenance',
+      );
+    }
   }
 
   private async appendEvent(

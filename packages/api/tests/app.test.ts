@@ -177,14 +177,14 @@ describe('API app', () => {
     });
 
     expect(healthResponse.status).toBe(200);
-    expect((await startupResponse.json()).connectorCount).toBe(1);
+    expect((await startupResponse.json()).connectorCount).toBe(2);
     expect((await validateResponse.json()).ok).toBe(true);
     expect(
       ((await reflectionResponse.json()) as Array<{ category: string }>).some(
         (item) => item.category === 'scope',
       ),
     ).toBe(true);
-    expect(await connectorsResponse.json()).toHaveLength(1);
+    expect(await connectorsResponse.json()).toHaveLength(2);
     expect(await scopeOptionsResponse.json()).toHaveLength(2);
     expect(setScopeResponse.status).toBe(200);
     expect((await toolPolicyResponse.json()).enabled).toBe(false);
@@ -200,7 +200,7 @@ describe('API app', () => {
       ),
     ).toBe(true);
     expect((await readinessResponse.json()).status).toBe('ready');
-    expect((await dashboardResponse.json()).connectors).toBe(1);
+    expect((await dashboardResponse.json()).connectors).toBe(2);
     expect(knowledgeResponse.status).toBe(200);
     expect(knowledgeResults[0]?.content).toContain('baseline learning source');
     expect((await factResponse.json()).id).toBe(knowledgeResults[0]?.id);

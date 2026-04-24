@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   listTools: vi.fn(),
   sseTransport: vi.fn(),
   stdioTransport: vi.fn(),
+  streamableHttpTransport: vi.fn(),
 }));
 
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
@@ -31,6 +32,18 @@ vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
 vi.mock('@modelcontextprotocol/sdk/client/sse.js', () => ({
   SSEClientTransport: vi.fn(function MockSseTransport(url: URL, options: unknown) {
     mocks.sseTransport(url, options);
+    return {
+      close: mocks.close,
+    };
+  }),
+}));
+
+vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
+  StreamableHTTPClientTransport: vi.fn(function MockStreamableHttpTransport(
+    url: URL,
+    options: unknown,
+  ) {
+    mocks.streamableHttpTransport(url, options);
     return {
       close: mocks.close,
     };
@@ -125,6 +138,55 @@ describe('createSdkMcpBridgeFactory', () => {
         },
       }),
     );
+  });
+
+  it('connects Streamable HTTP transports', async () => {
+    const bridge = await createSdkMcpBridgeFactory()('dense-memory', {
+      enabled: true,
+      hardDeny: [],
+      headers: {},
+      kind: 'mcp',
+      transport: {
+        headers: { authorization: 'Bearer key' },
+        type: 'streamable-http',
+        url: 'http://dense-mem:8080/mcp',
+      },
+    });
+
+    await expect(bridge.startupCheck()).resolves.toMatchObject({ ok: true });
+    expect(mocks.streamableHttpTransport).toHaveBeenCalledWith(
+      new URL('http://dense-mem:8080/mcp'),
+      expect.objectContaining({
+        requestInit: {
+          headers: {
+            authorization: 'Bearer key',
+          },
+        },
+      }),
+    );
+  });
+
+  it('parses JSON text tool content', async () => {
+    mocks.callTool.mockResolvedValue({
+      content: [{ text: '{"id":"memory-1","status":"created"}', type: 'text' }],
+    });
+    const bridge = await createSdkMcpBridgeFactory()('dense-memory', {
+      enabled: true,
+      hardDeny: [],
+      headers: {},
+      kind: 'mcp',
+      transport: {
+        args: [],
+        command: 'mcp-server',
+        env: {},
+        type: 'process',
+      },
+    });
+
+    await expect(bridge.callTool('save_memory', {})).resolves.toEqual({
+      id: 'memory-1',
+      status: 'created',
+    });
   });
 
   it('surfaces startup and tool execution errors', async () => {

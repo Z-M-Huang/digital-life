@@ -28,6 +28,7 @@ safety:
     - global.blocked
 denseMem:
   baseUrl: \${DENSE_MEM_URL}
+  apiKey: \${DENSE_MEM_API_KEY}
   namespace: digital-life
   timeoutMs: 5000
 connectors:
@@ -44,6 +45,7 @@ describe('loadConfigFromText', () => {
   it('parses yaml and resolves environment variables', () => {
     const config = loadConfigFromText(yamlText, {
       DENSE_MEM_URL: 'http://localhost:8081',
+      DENSE_MEM_API_KEY: 'test-api-key',
       DIGITAL_LIFE_AI_MODEL: 'gpt-test',
     });
 
@@ -55,6 +57,7 @@ describe('loadConfigFromText', () => {
   it('collects hard deny tool ids from root and connectors', () => {
     const config = loadConfigFromText(yamlText, {
       DENSE_MEM_URL: 'http://localhost:8081',
+      DENSE_MEM_API_KEY: 'test-api-key',
       DIGITAL_LIFE_AI_MODEL: 'gpt-test',
     });
 
@@ -96,6 +99,7 @@ safety:
     execute: deny
 denseMem:
   baseUrl: \${DENSE_MEM_URL}
+  apiKey: \${DENSE_MEM_API_KEY}
   namespace: digital-life
 connectors:
   custom:
@@ -120,6 +124,7 @@ connectors:
 
     const config = await loadConfig(join(root, 'digital-life.yaml'), {
       DENSE_MEM_URL: 'http://localhost:8081',
+      DENSE_MEM_API_KEY: 'test-api-key',
       DIGITAL_LIFE_AI_MODEL: 'gpt-test',
     });
 
@@ -162,6 +167,7 @@ safety:
     execute: deny
 denseMem:
   baseUrl: \${DENSE_MEM_URL}
+  apiKey: \${DENSE_MEM_API_KEY}
   namespace: digital-life
 connectors: {}
 `,
@@ -170,6 +176,7 @@ connectors: {}
     await expect(
       loadConfig(join(root, 'digital-life.yaml'), {
         DENSE_MEM_URL: 'http://localhost:8081',
+        DENSE_MEM_API_KEY: 'test-api-key',
         DIGITAL_LIFE_AI_MODEL: 'gpt-test',
       }),
     ).rejects.toThrow('Prompt override "system" could not be loaded');

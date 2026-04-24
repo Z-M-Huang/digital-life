@@ -4,10 +4,11 @@ type SectionCardProps = PropsWithChildren<{
   eyebrow?: string;
   title: string;
   actions?: ReactNode;
+  className?: string;
 }>;
 
-export const SectionCard = ({ actions, children, eyebrow, title }: SectionCardProps) => (
-  <section className="panel">
+export const SectionCard = ({ actions, children, className, eyebrow, title }: SectionCardProps) => (
+  <section className={['panel', className].filter(Boolean).join(' ')}>
     <header className="panel-header">
       <div>
         {eyebrow ? <p className="eyebrow">{eyebrow}</p> : null}

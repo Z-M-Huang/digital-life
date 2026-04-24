@@ -43,7 +43,8 @@
 - [`docker-compose.yml`](/app/digital-life/docker-compose.yml) is the local development version of that stack. It runs the same services but keeps the `digital-life` API and web console in watch mode with bind mounts.
 - Both Compose files now declare healthchecks for `postgres`, `redis`, `neo4j`, `dense-mem`, `digital-life`, and the web console.
 - The `digital-life` container runs `bun run db:migrate` from its entrypoint before the API process starts, so a fresh stack initializes runtime tables automatically.
-- `digital-life` model settings and `dense-mem` embedding settings are intentionally separate. Copy [`.env.example`](/app/digital-life/.env.example) to `.env`, set `DIGITAL_LIFE_AI_MODEL`, and provide `DENSE_MEM_AI_API_KEY` plus the matching dense-mem embedding provider settings before running either Compose stack.
+- `digital-life` model settings, dense-mem embedding settings, and dense-mem runtime credentials are intentionally separate. Copy [`.env.example`](/app/digital-life/.env.example) to `.env`, set `DIGITAL_LIFE_AI_MODEL`, provide `DENSE_MEM_AI_API_KEY` for embeddings, then provision a dense-mem profile-bound API key and set `DENSE_MEM_API_KEY`.
+- `config/digital-life.yaml` registers dense-mem as the `dense-memory` MCP connector over the dense-mem HTTP service at `/mcp`.
 - [`Dockerfile`](/app/digital-life/Dockerfile) exposes three build targets:
   - `workspace` for dev/watch containers
   - `api` for the production-style API container
@@ -56,6 +57,7 @@
 - Secrets and runtime endpoints are provided through environment variables from `.env` or Compose `environment`, then interpolated into the YAML at load time: [load-config.ts](/app/digital-life/packages/core/src/config/load-config.ts).
 - Prompt override files are real repository assets under [`config/prompts/system.md`](/app/digital-life/config/prompts/system.md) and [`config/prompts/bootstrap.md`](/app/digital-life/config/prompts/bootstrap.md). Config loading now fails fast if any prompt override path is invalid.
 - Extension connector module paths, prompt override paths, and MCP process working directories are resolved relative to the YAML file location, so custom connectors can be referenced with config-relative paths and loaded at startup.
+- Learning writes and live/agent access use the `dense-memory.*` MCP tools backed by the dense-mem MCP server. Profile scope is derived from the profile-bound `DENSE_MEM_API_KEY`; Digital Life does not send or configure a separate profile ID.
 - The app image copies the repository workspace into `/app`, and both Compose files set `DIGITAL_LIFE_CONFIG_PATH=/app/config/digital-life.yaml`.
 - The dev web container proxies `/api` to the API service through `VITE_API_PROXY_TARGET`: [vite.config.ts](/app/digital-life/packages/web/vite.config.ts).
 - The production-style web container serves built assets and proxies `/api` through [server.ts](/app/digital-life/packages/web/src/server.ts).

@@ -2,6 +2,7 @@ import type { DigitalLifeConfig } from '@digital-life/core';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { z } from 'zod';
 
@@ -34,6 +35,19 @@ export type McpBridgeFactory = (
   registration: Extract<DigitalLifeConfig['connectors'][string], { kind: 'mcp' }>,
 ) => Promise<McpBridgeClient>;
 
+const parseTextContent = (text: string): unknown => {
+  const trimmed = text.trim();
+  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+    return text;
+  }
+
+  try {
+    return JSON.parse(trimmed) as unknown;
+  } catch {
+    return text;
+  }
+};
+
 const extractToolResult = (result: Record<string, unknown>): unknown => {
   if (result.isError) {
     const content = Array.isArray(result.content) ? result.content : [];
@@ -63,9 +77,10 @@ const extractToolResult = (result: Record<string, unknown>): unknown => {
     typeof content[0] === 'object' &&
     'type' in content[0] &&
     content[0].type === 'text' &&
-    'text' in content[0]
+    'text' in content[0] &&
+    typeof content[0].text === 'string'
   ) {
-    return content[0].text;
+    return parseTextContent(content[0].text);
   }
 
   return result;
@@ -94,6 +109,14 @@ const createTransport = (
     ...registration.headers,
     ...registration.transport.headers,
   };
+
+  if (registration.transport.type === 'streamable-http') {
+    return new StreamableHTTPClientTransport(new URL(registration.transport.url), {
+      requestInit: {
+        headers,
+      },
+    }) as unknown as Transport;
+  }
 
   return new SSEClientTransport(new URL(registration.transport.url), {
     requestInit: {
@@ -226,6 +249,18 @@ export const createSdkMcpBridgeFactory =
     };
   };
 
+const WRITE_MCP_TOOL_NAMES = new Set([
+  'detect_community',
+  'post_claim',
+  'promote_claim',
+  'retract_fragment',
+  'save_memory',
+  'verify_claim',
+]);
+
+const inferMcpToolCapability = (toolName: string): SourceToolDefinition['capability'] =>
+  WRITE_MCP_TOOL_NAMES.has(toolName) ? 'write' : 'read';
+
 export const mcpDescriptorToSourceTool = ({
   connectorId,
   descriptor,
@@ -237,7 +272,7 @@ export const mcpDescriptorToSourceTool = ({
 }): SourceToolDefinition => ({
   id: `${connectorId}.${descriptor.name}`,
   description: descriptor.description,
-  capability: 'read',
+  capability: inferMcpToolCapability(descriptor.name),
   role: 'action',
   phases: ['bootstrap', 'learning', 'live', 'maintenance'],
   inputSchema: unknownRecordSchema,

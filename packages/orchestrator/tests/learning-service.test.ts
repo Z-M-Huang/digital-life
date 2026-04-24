@@ -1,4 +1,4 @@
-import type { DenseMemClient, DenseMemWriteRequest } from '@digital-life/core';
+import type { DenseMemClient, DigitalLifeConfig } from '@digital-life/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createInMemoryRuntimeStateRepository } from '../src/repositories/runtime-state-repository';
@@ -7,16 +7,53 @@ import { createTestConfig } from '../src/testing/create-test-runtime';
 
 describe('LearningService', () => {
   it('runs baseline, incremental, and resync learning modes with dense-mem writes', async () => {
-    const writes: DenseMemWriteRequest[] = [];
+    const mcpWrites: Record<string, unknown>[] = [];
     const denseMemClient: DenseMemClient = {
       healthCheck: vi.fn(async () => true),
-      writeFragments: vi.fn(async (request) => {
-        writes.push(request);
-      }),
+    };
+    const config: DigitalLifeConfig = {
+      ...createTestConfig(),
+      connectors: {
+        ...createTestConfig().connectors,
+        'dense-memory': {
+          enabled: true,
+          hardDeny: [],
+          headers: {},
+          kind: 'mcp',
+          transport: {
+            headers: { authorization: 'Bearer test-api-key' },
+            type: 'streamable-http',
+            url: 'http://dense-mem.local/mcp',
+          },
+        },
+      },
     };
     const repository = createInMemoryRuntimeStateRepository();
     const runtime = await createRuntime({
-      config: createTestConfig(),
+      bridgeFactory: async () => ({
+        async close() {
+          return undefined;
+        },
+        async startupCheck() {
+          return { ok: true, messages: [] };
+        },
+        async callTool(toolName, input) {
+          if (toolName === 'save_memory') {
+            mcpWrites.push(input);
+          }
+          return { id: `memory-${mcpWrites.length}`, status: 'created' };
+        },
+        async listTools() {
+          return [
+            {
+              description: 'Persist memory',
+              inputSchema: { type: 'object' },
+              name: 'save_memory',
+            },
+          ];
+        },
+      }),
+      config,
       denseMemClient,
       repository,
     });
@@ -43,8 +80,11 @@ describe('LearningService', () => {
     expect(baselineRun.status).toBe('completed');
     expect(incrementalRun.status).toBe('completed');
     expect(resyncRun.status).toBe('completed');
-    expect(writes).toHaveLength(3);
-    expect(writes[0]?.namespace).toBe('digital-life');
+    expect(mcpWrites.length).toBeGreaterThan(0);
+    expect(mcpWrites[0]).toMatchObject({
+      source: 'digital-life',
+      source_type: 'observation',
+    });
     expect(cursorWindows.some((window) => window.metadata.mode === 'incremental')).toBe(true);
     expect(baselineEvents.some((event) => event.type === 'progress')).toBe(true);
     expect(

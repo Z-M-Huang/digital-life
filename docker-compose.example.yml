@@ -141,6 +141,7 @@ services:
       DATABASE_URL: postgres://digital_life:digital_life@postgres:5432/digital_life
       REDIS_URL: redis://redis:6379
       DENSE_MEM_URL: http://dense-mem:8080
+      DENSE_MEM_API_KEY: ${DENSE_MEM_API_KEY:?DENSE_MEM_API_KEY is required; run /app/provision-profile in dense-mem first}
       DIGITAL_LIFE_CONFIG_PATH: /app/config/digital-life.yaml
       DIGITAL_LIFE_AI_API_KEY: ${DIGITAL_LIFE_AI_API_KEY:-}
       DIGITAL_LIFE_AI_BASE_URL: ${DIGITAL_LIFE_AI_BASE_URL:-}

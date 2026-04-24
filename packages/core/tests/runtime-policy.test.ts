@@ -23,6 +23,7 @@ const baseConfig: DigitalLifeConfig = {
     hardDeny: ['demo.blocked'],
   },
   denseMem: {
+    apiKey: 'test-api-key',
     baseUrl: 'http://localhost:8081',
     namespace: 'digital-life',
     timeoutMs: 5000,

@@ -19,10 +19,21 @@ safety:
 
 denseMem:
   baseUrl: ${DENSE_MEM_URL}
+  apiKey: ${DENSE_MEM_API_KEY}
   namespace: digital-life
   timeoutMs: 8000
 
 connectors:
+  dense-memory:
+    kind: mcp
+    enabled: true
+    transport:
+      type: streamable-http
+      url: ${DENSE_MEM_URL}/mcp
+      headers:
+        authorization: Bearer ${DENSE_MEM_API_KEY}
+    headers: {}
+    hardDeny: []
   demo:
     kind: builtin
     enabled: true
