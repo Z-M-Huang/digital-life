@@ -8,6 +8,7 @@ import type {
 } from '@digital-life/agents';
 
 import type { ConversationRecord, KnowledgeRepository } from '../repositories/knowledge-repository';
+import type { BootstrapService } from './bootstrap-service';
 import type { KnowledgeSearchResult, KnowledgeService } from './knowledge-service';
 
 export type ChatEvidence = KnowledgeSearchResult;
@@ -61,6 +62,14 @@ const turnsFromConversation = (conversation: ConversationRecord): ConversationTu
     }));
 
 const FALLBACK_CLARIFICATION = 'Ask a specific question about learned material.';
+const PERSONA_STYLE_LIMIT = 5;
+const PERSONA_BEHAVIOR_LIMIT = 3;
+const PERSONA_REASONING_LIMIT = 2;
+
+const personaFieldString = (persona: Record<string, unknown>, key: string): string | undefined => {
+  const value = persona[key];
+  return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+};
 
 export class ChatService {
   constructor(
@@ -68,7 +77,47 @@ export class ChatService {
     private readonly repository: KnowledgeRepository,
     private readonly queryAgent: QueryAgent,
     private readonly llmClient: LLMClient,
+    private readonly bootstrapService: BootstrapService,
   ) {}
+
+  private async loadPersonaSlices(): Promise<string[]> {
+    const slices: string[] = [];
+    try {
+      const state = await this.bootstrapService.getState();
+      const persona = state.persona ?? {};
+      const displayName = personaFieldString(persona, 'displayName') ?? 'unnamed user';
+      const language = personaFieldString(persona, 'language');
+      const timezone = personaFieldString(persona, 'timezone');
+      const idLine = `Your name (persona display name): ${displayName}.`;
+      const localeBits = [language ? `language: ${language}` : null, timezone ? `timezone: ${timezone}` : null].filter(
+        (entry): entry is string => entry !== null,
+      );
+      slices.push(idLine);
+      if (localeBits.length > 0) {
+        slices.push(`Locale — ${localeBits.join(', ')}.`);
+      }
+    } catch {
+      // bootstrap state unavailable; fall through with empty persona context
+    }
+
+    try {
+      const allFacts = await this.knowledgeService.search('', 200);
+      const pickByKind = (kind: string, limit: number): KnowledgeSearchResult[] =>
+        allFacts.filter((fact) => fact.kind === kind).slice(0, limit);
+      const slicesByKind = [
+        ...pickByKind('style', PERSONA_STYLE_LIMIT),
+        ...pickByKind('behavior', PERSONA_BEHAVIOR_LIMIT),
+        ...pickByKind('reasoning', PERSONA_REASONING_LIMIT),
+      ];
+      for (const fact of slicesByKind) {
+        slices.push(`${fact.kind}: ${fact.content}`);
+      }
+    } catch {
+      // knowledge unavailable; persona slices stay minimal
+    }
+
+    return slices;
+  }
 
   async getConversation(conversationId: string): Promise<ConversationRecord | null> {
     return this.repository.getConversation(conversationId);
@@ -90,6 +139,7 @@ export class ChatService {
     const evidence =
       trimmedQuery.length === 0 ? [] : await this.knowledgeService.search(trimmedQuery, 5);
 
+    const personaSlices = trimmedQuery.length === 0 ? [] : await this.loadPersonaSlices();
     const decision: QueryAgentOutput =
       trimmedQuery.length === 0
         ? {
@@ -103,6 +153,7 @@ export class ChatService {
             query: trimmedQuery,
             evidence: evidence.map(evidenceFromSearch),
             conversation: turnsFromConversation(conversation),
+            personaSlices,
             ...(signal ? { signal } : {}),
           });
 
@@ -228,21 +279,32 @@ export class ChatService {
       yield { type: 'evidence', payload: item };
     }
 
-    const { system, prompt } = this.queryAgent.buildAnswerPrompt({
+    const personaSlices = await this.loadPersonaSlices();
+    const decision = await this.queryAgent.decide({
       query: trimmedQuery,
       evidence: evidence.map(evidenceFromSearch),
       conversation: turnsFromConversation(conversation),
-    });
-    const stream = this.llmClient.streamText({
-      system,
-      prompt,
-      context: { promptId: 'query', promptVersion: 'stream' },
+      personaSlices,
     });
 
-    let fullAnswer = '';
-    for await (const delta of stream.textStream) {
-      fullAnswer += delta;
-      yield { type: 'text_delta', payload: { delta } };
+    const clarificationRequest =
+      decision.mode === 'clarification'
+        ? (decision.clarificationQuestion ?? FALLBACK_CLARIFICATION)
+        : null;
+    const answerText = clarificationRequest ?? decision.answer.trim();
+
+    // Emit the answer in fixed-size text deltas so the frontend can render
+    // progressively without any whitespace fudging.
+    const deltaSize = 24;
+    for (let offset = 0; offset < answerText.length; offset += deltaSize) {
+      yield {
+        type: 'text_delta',
+        payload: { delta: answerText.slice(offset, offset + deltaSize) },
+      };
+    }
+
+    for (const signal of decision.reflectionSignals) {
+      yield { type: 'reflection_signal', payload: signal };
     }
 
     const updatedConversation = await this.repository.appendConversationMessages(conversation.id, [
@@ -253,19 +315,19 @@ export class ChatService {
       },
       {
         role: 'assistant',
-        content: fullAnswer,
-        evidenceFactIds: evidence.map((entry) => entry.id),
+        content: clarificationRequest ?? decision.answer,
+        evidenceFactIds: decision.citedEvidenceIds,
       },
     ]);
 
     yield {
       type: 'done',
       payload: {
-        answer: fullAnswer,
-        clarificationRequest: null,
+        answer: decision.answer,
+        clarificationRequest,
         conversationId: updatedConversation.id,
         evidenceCount: evidence.length,
-        mode: 'grounded',
+        mode: decision.mode,
       },
     };
   }

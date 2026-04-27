@@ -190,7 +190,7 @@ export const createDenseMemClient = ({
           content: input.content,
           confidence: input.confidence,
           authority: input.authority,
-          fragment_ids: input.fragmentIds ?? [],
+          supported_by: input.fragmentIds ?? [],
           metadata: input.metadata ?? {},
         }),
         ...(headers ? { headers } : {}),

@@ -20,10 +20,10 @@ export const reflectionSignalSchema = z.object({
 
 export const queryAgentOutputSchema = z.object({
   mode: queryOutputModeSchema,
-  answer: z.string().default(''),
-  clarificationQuestion: z.string().optional(),
-  citedEvidenceIds: z.array(z.string()).default([]),
-  reflectionSignals: z.array(reflectionSignalSchema).default([]),
+  answer: z.string(),
+  clarificationQuestion: z.string().nullable(),
+  citedEvidenceIds: z.array(z.string()),
+  reflectionSignals: z.array(reflectionSignalSchema),
 });
 
 export type QueryOutputMode = z.infer<typeof queryOutputModeSchema>;

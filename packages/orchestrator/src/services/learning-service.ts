@@ -25,6 +25,16 @@ import {
   resultToLearningMaterials,
 } from './learning-support';
 
+// Per-material learning timeout. Most LLM calls finish in ~10 s, but a
+// chunked 16 MB file with 28 sequential chunks × 4 parallel learners can
+// legitimately take 5+ minutes. Allow 10 minutes per material so a single
+// hung upstream call can't kill the whole run while still bounding it.
+const MATERIAL_TIMEOUT_MS = 600_000;
+// Inter-write delay during dense-mem fragment burst. Empirically the
+// per-key rate limit kicks in around a few hundred fragments/sec; 30 ms
+// keeps the steady-state throughput under ~33/sec with plenty of headroom.
+const DENSE_MEM_WRITE_DELAY_MS = 30;
+
 export class LearningService {
   constructor(
     private readonly config: DigitalLifeConfig,
@@ -91,48 +101,19 @@ export class LearningService {
           throw new Error('dense-mem health check failed before fragment write.');
         }
 
-        const extraction =
-          consolidatedFragments[0]?.provenance &&
-          typeof consolidatedFragments[0].provenance === 'object'
-            ? ((consolidatedFragments[0].provenance as Record<string, unknown>).extraction as
-                | Record<string, unknown>
-                | undefined)
-            : undefined;
+        // Claim promotion is currently disabled: we don't yet capture the
+        // dense-mem fragment IDs returned from save_memory, so postClaim's
+        // supported_by cannot reference real fragment UUIDs. Always write
+        // fragments; the maintenance loop will promote claims later.
+        // Throttle to avoid bursting past the dense-mem per-key rate limit.
+        const sleep = (ms: number) =>
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, ms);
+          });
         for (const consolidated of consolidatedFragments) {
-          if (consolidated.status === 'claim' && consolidated.claim) {
-            try {
-              const claim = await this.denseMemClient.postClaim({
-                subject: consolidated.claim.subject ?? consolidated.kind,
-                predicate: consolidated.claim.predicate ?? 'asserts',
-                ...(consolidated.claim.object !== undefined
-                  ? { object: consolidated.claim.object }
-                  : {}),
-                content: consolidated.content,
-                confidence: consolidated.confidence,
-                authority: consolidated.authorities[0] ?? 'unknown',
-                idempotencyKey: `${run.id}:${consolidated.id}`,
-                metadata: {
-                  namespace: this.config.denseMem.namespace,
-                  kind: consolidated.kind,
-                  authorities: consolidated.authorities,
-                  ...(extraction ? { extraction } : {}),
-                  runId: run.id,
-                },
-              });
-              claimsWritten.push(claim.id);
-            } catch (error) {
-              await this.appendEvent(run.id, 'warning', {
-                message: `postClaim failed; falling back to fragment write: ${
-                  error instanceof Error ? error.message : 'unknown'
-                }`,
-              });
-              await this.writeDenseMemFragment(consolidated);
-              fragmentsWritten.push(consolidated.id);
-            }
-          } else {
-            await this.writeDenseMemFragment(consolidated);
-            fragmentsWritten.push(consolidated.id);
-          }
+          await this.writeDenseMemFragment(consolidated);
+          fragmentsWritten.push(consolidated.id);
+          await sleep(DENSE_MEM_WRITE_DELAY_MS);
         }
 
         await this.knowledgeService.persistFacts(run.id, consolidatedFragments);
@@ -343,9 +324,40 @@ export class LearningService {
         });
 
         for (const material of materials) {
-          learnedFragments.push(
-            ...(await runDefaultLearners(material, this.learners, signal ? { signal } : undefined)),
+          // Bound each material so a single hung LLM call cannot kill the run.
+          // Combine the run's external signal with a per-material timeout.
+          const materialController = new AbortController();
+          const timeoutHandle = setTimeout(
+            () => materialController.abort(),
+            MATERIAL_TIMEOUT_MS,
           );
+          const onAbort = () => materialController.abort();
+          if (signal) {
+            if (signal.aborted) {
+              materialController.abort();
+            } else {
+              signal.addEventListener('abort', onAbort, { once: true });
+            }
+          }
+          try {
+            learnedFragments.push(
+              ...(await runDefaultLearners(material, this.learners, {
+                signal: materialController.signal,
+              })),
+            );
+          } catch (error) {
+            const message = error instanceof Error ? error.message : 'unknown learner error';
+            await this.appendEvent(run.id, 'warning', {
+              connectorId: connector.id,
+              materialId: material.id,
+              message: `Learners failed for material; skipping: ${message}`,
+            });
+          } finally {
+            clearTimeout(timeoutHandle);
+            if (signal) {
+              signal.removeEventListener('abort', onAbort);
+            }
+          }
         }
       }
 

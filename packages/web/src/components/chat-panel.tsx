@@ -85,7 +85,7 @@ export const ChatPanel = () => {
         switch (sseEvent.event) {
           case 'text_delta': {
             const delta = (data as { delta: string }).delta;
-            aggregatedAnswer = aggregatedAnswer ? `${aggregatedAnswer} ${delta}` : delta;
+            aggregatedAnswer = `${aggregatedAnswer}${delta}`;
             setStreamingAnswer(aggregatedAnswer);
             break;
           }

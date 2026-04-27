@@ -298,7 +298,13 @@ export const createRuntime = async ({
   const gapService = new GapService(toolLearningRepository, reflectionService);
   const toolLearningService = new ToolLearningService(toolLearningRepository);
   const bootstrapService = new BootstrapService(connectors, repository, learningService);
-  const chatService = new ChatService(knowledgeService, knowledgeRepository, queryAgent, llmClient);
+  const chatService = new ChatService(
+    knowledgeService,
+    knowledgeRepository,
+    queryAgent,
+    llmClient,
+    bootstrapService,
+  );
   const maintenanceService = new MaintenanceService({
     connectors,
     denseMemClient,

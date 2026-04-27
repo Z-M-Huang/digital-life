@@ -30,13 +30,10 @@ export type QueryAgent = {
 
 const formatEvidence = (evidence: EvidenceItem[]): string => {
   if (evidence.length === 0) {
-    return '(no evidence retrieved)';
+    return '(nothing on this topic)';
   }
   return evidence
-    .map(
-      (item) =>
-        `- id=${item.id} score=${item.score.toFixed(2)} kind=${item.kind ?? 'unknown'}: ${item.content}`,
-    )
+    .map((item) => `- [${item.id}] ${item.content}`)
     .join('\n');
 };
 
@@ -44,22 +41,27 @@ const formatConversation = (turns: ConversationTurn[]): string => {
   if (turns.length === 0) {
     return '(no prior turns)';
   }
-  return turns.map((turn) => `${turn.role}: ${turn.content}`).join('\n');
+  return turns
+    .map((turn) => (turn.role === 'user' ? `Them: ${turn.content}` : `You: ${turn.content}`))
+    .join('\n');
 };
 
 const buildUserPrompt = (input: QueryAgentInput): string =>
   [
-    `Conversation so far:\n${formatConversation(input.conversation)}`,
-    '',
-    `Latest user message: ${input.query}`,
-    '',
-    `Retrieved evidence:\n${formatEvidence(input.evidence)}`,
-    '',
+    'Who you are (this is YOU, not external info):',
     input.personaSlices && input.personaSlices.length > 0
-      ? `Persona slices:\n${input.personaSlices.map((slice) => `- ${slice}`).join('\n')}`
-      : 'Persona slices: (none yet)',
+      ? input.personaSlices.map((slice) => `- ${slice}`).join('\n')
+      : '- (no persona profile yet — speak in a neutral first-person voice)',
     '',
-    'Decide a mode and produce a structured response per the schema. Cite evidence ids you used. If unsure, prefer abstention or clarification over hallucination.',
+    'Recent chat (with the person you are talking to right now):',
+    formatConversation(input.conversation),
+    '',
+    'Stuff you happen to know (treat as your own memory, NEVER mention as "evidence" or "records" to them):',
+    formatEvidence(input.evidence),
+    '',
+    `They just said: ${input.query}`,
+    '',
+    'Reply as yourself. Put the in-character spoken text in `answer`. Pick a mode. If you draw on something from "Stuff you happen to know", put its bracketed id in `citedEvidenceIds` — do NOT mention these ids in the answer text.',
   ].join('\n');
 
 export const createQueryAgent = ({

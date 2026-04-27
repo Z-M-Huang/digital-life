@@ -8,3 +8,6 @@ dist
 node_modules
 *.log
 *.tsbuildinfo
+.learning-data
+.claude
+docker-compose.override.yml

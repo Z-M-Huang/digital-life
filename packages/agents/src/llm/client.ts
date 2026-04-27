@@ -60,8 +60,12 @@ const buildModel = (options: LLMClientOptions): LanguageModel => {
   const provider = createOpenAI({
     apiKey: options.apiKey,
     ...(options.baseUrl ? { baseURL: options.baseUrl } : {}),
+    compatibility: 'compatible',
   });
-  return provider(options.modelId);
+  // Disable strict JSON schema mode so zod schemas with .optional / .default /
+  // .min are accepted; AI SDK validates client-side instead of relying on
+  // OpenAI's strict structured-outputs validator.
+  return provider(options.modelId, { strictJsonSchema: false });
 };
 
 export const createLLMClient = (options: LLMClientOptions): LLMClient => {

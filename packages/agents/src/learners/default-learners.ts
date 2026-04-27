@@ -6,6 +6,38 @@ import type { LearnedFragment, LearnerAgent, LearnerInvocation, LearningMaterial
 
 const LEARNER_KINDS: readonly LearnerKind[] = ['factual', 'style', 'behavior', 'reasoning'];
 
+// Chunk material text so a single learner call stays well under typical
+// provider input limits (OpenAI Responses API: 10 MiB) and within the LLM
+// context window. 200k chars ≈ 600 KB UTF-8 for Chinese, comfortably
+// inside a 128k-token context after system + scaffolding overhead.
+const MATERIAL_CHUNK_CHARS = 200_000;
+
+const splitMaterial = (material: LearningMaterial): LearningMaterial[] => {
+  const text = material.text ?? '';
+  if (text.length <= MATERIAL_CHUNK_CHARS) {
+    return [material];
+  }
+  const chunks: LearningMaterial[] = [];
+  let chunkIndex = 0;
+  for (let offset = 0; offset < text.length; offset += MATERIAL_CHUNK_CHARS) {
+    const slice = text.slice(offset, offset + MATERIAL_CHUNK_CHARS);
+    chunks.push({
+      ...material,
+      id: `${material.id}#chunk-${chunkIndex}`,
+      text: slice,
+      metadata: {
+        ...(material.metadata ?? {}),
+        chunkIndex,
+        chunkStartChar: offset,
+        chunkEndChar: offset + slice.length,
+        originalMaterialId: material.id,
+      },
+    });
+    chunkIndex += 1;
+  }
+  return chunks;
+};
+
 const buildAuthority = (material: LearningMaterial): string => {
   const connectorId =
     typeof material.metadata?.connectorId === 'string'
@@ -95,8 +127,15 @@ export const runDefaultLearners = async (
   learners: LearnerAgent[],
   invocation?: LearnerInvocation,
 ): Promise<LearnedFragment[]> => {
-  const results = await Promise.all(learners.map((learner) => learner.learn(material, invocation)));
-  return results.flat();
+  const chunks = splitMaterial(material);
+  const all: LearnedFragment[] = [];
+  for (const chunk of chunks) {
+    const results = await Promise.all(
+      learners.map((learner) => learner.learn(chunk, invocation)),
+    );
+    all.push(...results.flat());
+  }
+  return all;
 };
 
 export { LEARNER_KINDS };
