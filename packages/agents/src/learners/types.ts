@@ -1,3 +1,5 @@
+import type { LearnerKind } from './output-schemas';
+
 export type LearningMaterial = {
   id: string;
   text: string;
@@ -5,17 +7,36 @@ export type LearningMaterial = {
   metadata?: Record<string, unknown>;
 };
 
+export type ExtractionMetadata = {
+  promptVersion: string;
+  extractionModel: string;
+  extractionVersion: string;
+};
+
+export type FragmentProvenance = {
+  source: string;
+  materialId: string;
+  metadata?: Record<string, unknown>;
+  extraction: ExtractionMetadata;
+};
+
 export type LearnedFragment = {
-  kind: 'factual' | 'style' | 'behavior' | 'reasoning';
+  kind: LearnerKind;
   content: string;
-  provenance: {
-    source: string;
-    materialId: string;
-    metadata?: Record<string, unknown>;
-  };
+  confidence: number;
+  evidenceSpan?: string;
+  authority: string;
+  provenance: FragmentProvenance;
+  structured?: Record<string, unknown>;
+};
+
+export type LearnerInvocation = {
+  signal?: AbortSignal;
 };
 
 export type LearnerAgent = {
-  id: 'factual' | 'style' | 'behavior' | 'reasoning';
-  learn: (material: LearningMaterial) => Promise<LearnedFragment[]>;
+  id: LearnerKind;
+  learn: (material: LearningMaterial, invocation?: LearnerInvocation) => Promise<LearnedFragment[]>;
 };
+
+export type { LearnerKind };

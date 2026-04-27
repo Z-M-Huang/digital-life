@@ -14,6 +14,10 @@ describe('createPostgresKnowledgeRepository', () => {
           id: 'fact-1',
           content: 'Fact: digital-life can be used as a baseline learning source',
           sourceCount: 2,
+          confidence: 0.85,
+          kind: 'factual',
+          authorities: ['connector:demo'],
+          status: 'fragment',
           provenance: {
             entries: [
               {

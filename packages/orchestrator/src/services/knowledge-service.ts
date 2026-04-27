@@ -1,3 +1,5 @@
+import type { DenseMemClient, DenseMemRecallResult } from '@digital-life/core';
+
 import type {
   KnowledgeFactRecord,
   KnowledgeRepository,
@@ -13,6 +15,7 @@ export type KnowledgeSearchResult = {
   sourceCount: number;
   sourceIds: string[];
   updatedAt: Date;
+  tier?: '1' | '1.5' | '2';
 };
 
 export type EvidenceCommunity = {
@@ -67,14 +70,75 @@ const buildCommunityLabel = (fact: KnowledgeFactRecord): string => {
   return `${connectorLabel} ${fact.kind}`.trim();
 };
 
+const denseMemRecallToResult = (entry: DenseMemRecallResult): KnowledgeSearchResult => ({
+  connectorIds: [],
+  content: entry.content,
+  id: entry.id,
+  kind: entry.tier === '1' ? 'fact' : entry.tier === '1.5' ? 'claim' : 'fragment',
+  score: entry.score,
+  sourceCount: 1,
+  sourceIds: [],
+  updatedAt: new Date(),
+  tier: entry.tier,
+});
+
 export class KnowledgeService {
-  constructor(private readonly repository: KnowledgeRepository) {}
+  constructor(
+    private readonly repository: KnowledgeRepository,
+    private readonly denseMemClient?: DenseMemClient,
+  ) {}
 
   async getFact(id: string): Promise<KnowledgeFactRecord | null> {
+    if (this.denseMemClient) {
+      try {
+        const remote = await this.denseMemClient.getFact(id);
+        if (remote) {
+          const cached = await this.repository.getFact(id);
+          return {
+            connectorIds: cached?.connectorIds ?? [],
+            content: remote.content,
+            createdAt: cached?.createdAt ?? new Date(),
+            id: remote.id,
+            kind: cached?.kind ?? 'fact',
+            provenance: {
+              ...(cached?.provenance ?? {}),
+              tier: '1',
+              ...(remote.validFrom ? { validFrom: remote.validFrom } : {}),
+              ...(remote.validTo ? { validTo: remote.validTo } : {}),
+              ...(remote.lastConfirmedAt ? { lastConfirmedAt: remote.lastConfirmedAt } : {}),
+              ...(remote.truthScore !== undefined ? { truthScore: remote.truthScore } : {}),
+            },
+            runId: cached?.runId ?? null,
+            sourceCount: cached?.sourceCount ?? 1,
+            sourceIds: cached?.sourceIds ?? [],
+            updatedAt: cached?.updatedAt ?? new Date(),
+          };
+        }
+      } catch {
+        // fall through to local cache
+      }
+    }
     return this.repository.getFact(id);
   }
 
   async listCommunities(): Promise<EvidenceCommunity[]> {
+    if (this.denseMemClient) {
+      try {
+        const communities = await this.denseMemClient.listCommunities();
+        if (communities.length > 0) {
+          return communities.map((community) => ({
+            connectorIds: [],
+            factCount: community.memberCount ?? 0,
+            id: community.id,
+            kinds: ['community'],
+            label: community.summary.slice(0, 80),
+            sourceIds: community.topEntities ?? [],
+          }));
+        }
+      } catch {
+        // fall through to local
+      }
+    }
     const facts = await this.repository.listFacts();
     const grouped = new Map<string, KnowledgeFactRecord[]>();
 
@@ -120,6 +184,17 @@ export class KnowledgeService {
   }
 
   async search(query: string, limit = 10): Promise<KnowledgeSearchResult[]> {
+    if (this.denseMemClient) {
+      try {
+        const recall = await this.denseMemClient.recall(query, { limit });
+        if (recall.length > 0) {
+          return recall.map(denseMemRecallToResult);
+        }
+      } catch {
+        // fall through to local cache
+      }
+    }
+
     const facts = await this.repository.listFacts();
     const results = facts.map((fact) => ({
       connectorIds: fact.connectorIds,

@@ -51,14 +51,32 @@ connectors:
           label: Last 30 days
   filesystem:
     kind: mcp
-    enabled: false
+    enabled: true
     transport:
       type: process
       command: bunx
       args:
         - "@modelcontextprotocol/server-filesystem"
-        - ${MCP_FILESYSTEM_ROOT}
+        - ${LEARNING_DATA_DIR}
     headers:
       x-digital-life: local-dev
     hardDeny:
       - filesystem.write_file
+      - filesystem.edit_file
+      - filesystem.create_directory
+      - filesystem.move_file
+    adapter: mcp-filesystem
+    scopeDiscovery:
+      toolIds:
+        - list_directory
+      selectionKind: mcp-scope
+    learning:
+      enumerateToolIds:
+        - list_directory
+      fetchToolIds:
+        - read_file
+      defaultMode: baseline
+      supportedModes:
+        - baseline
+        - incremental
+        - resync

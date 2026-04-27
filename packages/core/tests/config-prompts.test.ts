@@ -19,6 +19,7 @@ describe('loadPromptOverrideContents', () => {
           system: systemPromptPath,
         },
         temperature: 0.2,
+        maxConcurrency: 4,
       },
       connectors: {},
       denseMem: {
@@ -38,6 +39,11 @@ describe('loadPromptOverrideContents', () => {
           write: 'deny',
         },
         hardDeny: [],
+      },
+      maintenance: {
+        enabled: false,
+        timezone: 'UTC',
+        intervalMs: 21_600_000,
       },
     });
 

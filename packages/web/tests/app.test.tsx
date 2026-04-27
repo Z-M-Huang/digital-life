@@ -349,6 +349,32 @@ const createFetchMock = (state: MockState) =>
     }
 
     if (url.endsWith('/api/chat/query')) {
+      const accept = String((init?.headers as Record<string, string> | undefined)?.accept ?? '');
+      if (accept.includes('text/event-stream')) {
+        const evidenceLines = state.chatResponse.evidence
+          .map((entry) => `event: evidence\ndata: ${JSON.stringify(entry)}\n\n`)
+          .join('');
+        const answer = state.chatResponse.answer;
+        const deltaLine =
+          answer && answer.length > 0
+            ? `event: text_delta\ndata: ${JSON.stringify({ delta: answer })}\n\n`
+            : '';
+        const clarificationLine = state.chatResponse.clarificationRequest
+          ? `event: clarification_request\ndata: ${JSON.stringify({ message: state.chatResponse.clarificationRequest })}\n\n`
+          : '';
+        const doneLine = `event: done\ndata: ${JSON.stringify({
+          answer: answer ?? '',
+          clarificationRequest: state.chatResponse.clarificationRequest ?? null,
+          conversationId: state.chatResponse.conversation.id,
+          evidenceCount: state.chatResponse.evidence.length,
+          mode: state.chatResponse.clarificationRequest ? 'clarification' : 'grounded',
+        })}\n\n`;
+        const body = `${evidenceLines}${deltaLine}${clarificationLine}${doneLine}`;
+        return new Response(body, {
+          status: 200,
+          headers: { 'content-type': 'text/event-stream' },
+        });
+      }
       return new Response(JSON.stringify(state.chatResponse));
     }
 

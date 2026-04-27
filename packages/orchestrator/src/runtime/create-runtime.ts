@@ -1,4 +1,17 @@
 import {
+  type ConsolidationAgent,
+  createConcurrencyLimiter,
+  createConsolidationAgent,
+  createDefaultLearners,
+  createLLMClientFromConfig,
+  createMockLLMClient,
+  createQueryAgent,
+  type LLMClient,
+  loadPrompts,
+  type PromptBundle,
+  type QueryAgent,
+} from '@digital-life/agents';
+import {
   createUnifiedToolRegistry,
   loadBuiltinConnectors,
   loadExtensionConnectors,
@@ -23,6 +36,7 @@ import { ensureKnowledgeTables } from '../repositories/knowledge-state-schema';
 import { createPostgresKnowledgeRepository } from '../repositories/postgres-knowledge-repository';
 import { createPostgresReflectionRepository } from '../repositories/postgres-reflection-repository';
 import { createPostgresRuntimeStateRepository } from '../repositories/postgres-runtime-state-repository';
+import { createPostgresToolLearningRepository } from '../repositories/postgres-tool-learning-repository';
 import {
   createInMemoryReflectionRepository,
   type ReflectionRepository,
@@ -33,14 +47,22 @@ import {
   type RuntimeStateRepository,
 } from '../repositories/runtime-state-repository';
 import { ensureRuntimeStateTables } from '../repositories/runtime-state-schema';
+import {
+  createInMemoryToolLearningRepository,
+  type ToolLearningRepository,
+} from '../repositories/tool-learning-repository';
 import { BootstrapService } from '../services/bootstrap-service';
 import { ChatService } from '../services/chat-service';
 import { ConnectorService } from '../services/connector-service';
+import { GapService } from '../services/gap-service';
 import { KnowledgeService } from '../services/knowledge-service';
 import { LearningService } from '../services/learning-service';
+import { MaintenanceService } from '../services/maintenance-service';
 import { ReadinessService } from '../services/readiness-service';
 import { ReflectionService } from '../services/reflection-service';
+import { createScheduler, type Scheduler } from '../services/scheduler';
 import { StartupService } from '../services/startup-service';
+import { ToolLearningService } from '../services/tool-learning-service';
 
 export type DigitalLifeRuntime = {
   bootstrapService: BootstrapService;
@@ -48,8 +70,17 @@ export type DigitalLifeRuntime = {
   chatService: ChatService;
   connectorService: ConnectorService;
   connectors: SourceToolConnector[];
+  consolidationAgent: ConsolidationAgent;
+  gapService: GapService;
   knowledgeService: KnowledgeService;
+  llmClient: LLMClient;
+  maintenanceService: MaintenanceService;
+  prompts: PromptBundle;
+  queryAgent: QueryAgent;
   reflectionService: ReflectionService;
+  scheduler: Scheduler;
+  toolLearningRepository: ToolLearningRepository;
+  toolLearningService: ToolLearningService;
   learningService: LearningService;
   promptOverrides: Record<string, string>;
   readinessService: ReadinessService;
@@ -138,25 +169,42 @@ const resolveRuntimeRepository = async ({
   });
 };
 
+const buildLlmClient = (config: DigitalLifeConfig): LLMClient => {
+  if (config.ai.apiKey || process.env.DIGITAL_LIFE_AI_API_KEY) {
+    return createLLMClientFromConfig(config);
+  }
+  if (process.env.NODE_ENV === 'production' && !process.env.DIGITAL_LIFE_ALLOW_MOCK_LLM) {
+    throw new Error(
+      'No LLM credentials configured. Set DIGITAL_LIFE_AI_API_KEY (or config.ai.apiKey), or set DIGITAL_LIFE_ALLOW_MOCK_LLM=1 to opt into the mock client (not recommended in production).',
+    );
+  }
+  return createMockLLMClient({ modelId: config.ai.model, extractionVersion: '0' });
+};
+
 export const createRuntime = async ({
   bridgeFactory,
   config,
   database,
   denseMemClient = createDenseMemClient({
     baseUrl: config.denseMem.baseUrl,
+    apiKey: config.denseMem.apiKey,
     timeoutMs: config.denseMem.timeoutMs,
   }),
   knowledgeRepository: knowledgeRepositoryOverride,
+  llmClient: llmClientOverride,
   reflectionRepository: reflectionRepositoryOverride,
   repository: repositoryOverride,
+  toolLearningRepository: toolLearningRepositoryOverride,
 }: {
   bridgeFactory?: McpBridgeFactory;
   config: DigitalLifeConfig;
   database?: DigitalLifeDatabase;
   denseMemClient?: DenseMemClient;
   knowledgeRepository?: KnowledgeRepository;
+  llmClient?: LLMClient;
   reflectionRepository?: ReflectionRepository;
   repository?: RuntimeStateRepository;
+  toolLearningRepository?: ToolLearningRepository;
 }): Promise<DigitalLifeRuntime> => {
   const configuredDatabase = resolveConfiguredDatabase({
     database,
@@ -178,6 +226,16 @@ export const createRuntime = async ({
     repository: reflectionRepositoryOverride,
   });
   const promptOverrides = await loadPromptOverrideContents(config);
+  const llmClient = llmClientOverride ?? buildLlmClient(config);
+  const prompts = await loadPrompts(config);
+  const learnerLimiter = createConcurrencyLimiter(config.ai.maxConcurrency);
+  const learners = createDefaultLearners({
+    client: llmClient,
+    prompts,
+    limiter: learnerLimiter,
+  });
+  const queryAgent = createQueryAgent({ client: llmClient, prompts });
+  const consolidationAgent = createConsolidationAgent({ client: llmClient, prompts });
   const builtinConnectors = loadBuiltinConnectors(config.connectors);
   const extensionConnectors = await loadExtensionConnectors(config.connectors);
   const mcpConnectors = await loadMcpConnectors(
@@ -192,7 +250,7 @@ export const createRuntime = async ({
   );
   const connectors = [...builtinConnectors, ...extensionConnectors, ...mcpConnectors];
   const registry = await createUnifiedToolRegistry({ connectors });
-  const knowledgeService = new KnowledgeService(knowledgeRepository);
+  const knowledgeService = new KnowledgeService(knowledgeRepository, denseMemClient);
   const readinessService = new ReadinessService(connectors, registry, repository);
   const reflectionService = new ReflectionService(
     connectors,
@@ -225,13 +283,35 @@ export const createRuntime = async ({
     repository,
     denseMemClient,
     knowledgeService,
+    learners,
+    consolidationAgent,
     async () => {
       await readinessService.recompute();
       await reflectionService.recompute();
     },
   );
+  const toolLearningRepository =
+    toolLearningRepositoryOverride ??
+    (configuredDatabase
+      ? createPostgresToolLearningRepository({ database: configuredDatabase })
+      : createInMemoryToolLearningRepository());
+  const gapService = new GapService(toolLearningRepository, reflectionService);
+  const toolLearningService = new ToolLearningService(toolLearningRepository);
   const bootstrapService = new BootstrapService(connectors, repository, learningService);
-  const chatService = new ChatService(knowledgeService, knowledgeRepository);
+  const chatService = new ChatService(knowledgeService, knowledgeRepository, queryAgent, llmClient);
+  const maintenanceService = new MaintenanceService({
+    connectors,
+    denseMemClient,
+    learningService,
+    reflectionService,
+    readinessService,
+  });
+  const scheduler = createScheduler({
+    config: config.maintenance,
+    task: async () => {
+      await maintenanceService.runCycle();
+    },
+  });
 
   return {
     bootstrapService,
@@ -239,8 +319,14 @@ export const createRuntime = async ({
     config,
     connectorService,
     connectors,
+    consolidationAgent,
+    gapService,
     knowledgeRepository,
     knowledgeService,
+    llmClient,
+    maintenanceService,
+    prompts,
+    queryAgent,
     reflectionRepository,
     reflectionService,
     learningService,
@@ -248,6 +334,9 @@ export const createRuntime = async ({
     readinessService,
     registry,
     repository,
+    scheduler,
     startupService,
+    toolLearningRepository,
+    toolLearningService,
   };
 };

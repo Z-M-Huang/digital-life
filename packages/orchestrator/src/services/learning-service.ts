@@ -1,4 +1,8 @@
-import { runDefaultLearners } from '@digital-life/agents';
+import {
+  type ConsolidationAgent,
+  type LearnerAgent,
+  runDefaultLearners,
+} from '@digital-life/agents';
 import type { SourceToolConnector, UnifiedToolRegistry } from '@digital-life/connectors';
 import {
   type DenseMemClient,
@@ -29,6 +33,8 @@ export class LearningService {
     private readonly repository: RuntimeStateRepository,
     private readonly denseMemClient: DenseMemClient,
     private readonly knowledgeService: KnowledgeService,
+    private readonly learners: LearnerAgent[],
+    private readonly consolidationAgent: ConsolidationAgent | undefined,
     private readonly recomputeReadiness: () => Promise<unknown>,
   ) {}
 
@@ -36,10 +42,12 @@ export class LearningService {
     connectorIds,
     details = {},
     mode,
+    signal,
   }: {
     connectorIds?: string[];
     details?: Record<string, unknown>;
     mode: LearningRunMode;
+    signal?: AbortSignal;
   }): Promise<LearningRunRecord> {
     const selectedConnectors = connectorIds ?? this.connectors.map((connector) => connector.id);
     let run = await this.repository.createLearningRun({
@@ -65,24 +73,72 @@ export class LearningService {
           throw new Error(`Unknown connector for learning run: ${connectorId}`);
         }
 
-        const summary = await this.processConnector(connector, mode, policies, run);
+        const summary = await this.processConnector(connector, mode, policies, run, signal);
         connectorSummaries.push(summary);
         learnedFragments.push(...summary.learnedFragments);
       }
 
-      const consolidatedFragments = consolidateLearnedFragments(learnedFragments);
+      const consolidatedFragments = await consolidateLearnedFragments(learnedFragments, {
+        ...(this.consolidationAgent ? { agent: this.consolidationAgent } : {}),
+        ...(signal ? { signal } : {}),
+      });
+      const claimsWritten: string[] = [];
+      const fragmentsWritten: string[] = [];
+
       if (consolidatedFragments.length > 0) {
         const denseMemHealthy = await this.denseMemClient.healthCheck();
         if (!denseMemHealthy) {
           throw new Error('dense-mem health check failed before fragment write.');
         }
 
-        await this.writeDenseMemFragments(
-          consolidatedFragments.map(({ sourceCount: _sourceCount, ...fragment }) => fragment),
-        );
+        const extraction =
+          consolidatedFragments[0]?.provenance &&
+          typeof consolidatedFragments[0].provenance === 'object'
+            ? ((consolidatedFragments[0].provenance as Record<string, unknown>).extraction as
+                | Record<string, unknown>
+                | undefined)
+            : undefined;
+        for (const consolidated of consolidatedFragments) {
+          if (consolidated.status === 'claim' && consolidated.claim) {
+            try {
+              const claim = await this.denseMemClient.postClaim({
+                subject: consolidated.claim.subject ?? consolidated.kind,
+                predicate: consolidated.claim.predicate ?? 'asserts',
+                ...(consolidated.claim.object !== undefined
+                  ? { object: consolidated.claim.object }
+                  : {}),
+                content: consolidated.content,
+                confidence: consolidated.confidence,
+                authority: consolidated.authorities[0] ?? 'unknown',
+                idempotencyKey: `${run.id}:${consolidated.id}`,
+                metadata: {
+                  namespace: this.config.denseMem.namespace,
+                  kind: consolidated.kind,
+                  authorities: consolidated.authorities,
+                  ...(extraction ? { extraction } : {}),
+                  runId: run.id,
+                },
+              });
+              claimsWritten.push(claim.id);
+            } catch (error) {
+              await this.appendEvent(run.id, 'warning', {
+                message: `postClaim failed; falling back to fragment write: ${
+                  error instanceof Error ? error.message : 'unknown'
+                }`,
+              });
+              await this.writeDenseMemFragment(consolidated);
+              fragmentsWritten.push(consolidated.id);
+            }
+          } else {
+            await this.writeDenseMemFragment(consolidated);
+            fragmentsWritten.push(consolidated.id);
+          }
+        }
+
         await this.knowledgeService.persistFacts(run.id, consolidatedFragments);
         await this.appendEvent(run.id, 'log', {
-          fragmentsWritten: consolidatedFragments.length,
+          claimsWritten: claimsWritten.length,
+          fragmentsWritten: fragmentsWritten.length,
           knowledgeFactsStored: consolidatedFragments.length,
           target: 'dense-mem',
         });
@@ -142,30 +198,30 @@ export class LearningService {
     return this.repository.listLearningRuns();
   }
 
-  private async writeDenseMemFragments(
-    fragments: Array<{ id: string; content: string; provenance: Record<string, unknown> }>,
-  ): Promise<void> {
+  private async writeDenseMemFragment(fragment: {
+    id: string;
+    content: string;
+    provenance: Record<string, unknown>;
+  }): Promise<void> {
     const saveMemoryToolId = 'dense-memory.save_memory';
     if (!this.registry.getTool(saveMemoryToolId)) {
       throw new Error('dense-mem MCP save_memory tool is not configured.');
     }
 
-    for (const fragment of fragments) {
-      await this.registry.invoke(
-        saveMemoryToolId,
-        {
-          content: fragment.content,
-          idempotency_key: fragment.id,
-          metadata: {
-            namespace: this.config.denseMem.namespace,
-            provenance: fragment.provenance,
-          },
-          source: this.config.denseMem.namespace,
-          source_type: 'observation',
+    await this.registry.invoke(
+      saveMemoryToolId,
+      {
+        content: fragment.content,
+        idempotency_key: fragment.id,
+        metadata: {
+          namespace: this.config.denseMem.namespace,
+          provenance: fragment.provenance,
         },
-        'maintenance',
-      );
-    }
+        source: this.config.denseMem.namespace,
+        source_type: 'observation',
+      },
+      'maintenance',
+    );
   }
 
   private async appendEvent(
@@ -186,6 +242,7 @@ export class LearningService {
     mode: LearningRunMode,
     policies: Awaited<ReturnType<RuntimeStateRepository['listToolPolicies']>>,
     run: LearningRunRecord,
+    signal?: AbortSignal,
   ): Promise<{
     connectorId: string;
     fetchToolIds: string[];
@@ -286,7 +343,9 @@ export class LearningService {
         });
 
         for (const material of materials) {
-          learnedFragments.push(...(await runDefaultLearners(material)));
+          learnedFragments.push(
+            ...(await runDefaultLearners(material, this.learners, signal ? { signal } : undefined)),
+          );
         }
       }
 

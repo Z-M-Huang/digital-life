@@ -21,12 +21,20 @@ export const createChatRoutes = (runtime: DigitalLifeRuntime) => {
       ...(payload.conversationId ? { conversationId: payload.conversationId } : {}),
     };
     if (wantsEventStream(context.req.header('accept') ?? null)) {
-      const events = await runtime.chatService.streamQuery(input);
       return streamSSE(context, async (stream) => {
-        for (const event of events) {
+        try {
+          for await (const event of runtime.chatService.streamTokens(input)) {
+            await stream.writeSSE({
+              data: JSON.stringify(event.payload),
+              event: event.type,
+            });
+          }
+        } catch (error) {
           await stream.writeSSE({
-            data: JSON.stringify(event.payload),
-            event: event.type,
+            data: JSON.stringify({
+              message: error instanceof Error ? error.message : 'Unknown chat error',
+            }),
+            event: 'error',
           });
         }
       });

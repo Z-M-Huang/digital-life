@@ -7,5 +7,10 @@
     "rootDir": ".",
     "outDir": "dist"
   },
+  "references": [
+    {
+      "path": "../core"
+    }
+  ],
   "include": ["src", "tests", "vitest.config.ts"]
 }

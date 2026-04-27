@@ -13,6 +13,7 @@ const baseConfig: DigitalLifeConfig = {
     model: 'gpt-test',
     temperature: 0.2,
     promptOverrides: {},
+    maxConcurrency: 4,
   },
   safety: {
     defaults: {
@@ -27,6 +28,11 @@ const baseConfig: DigitalLifeConfig = {
     baseUrl: 'http://localhost:8081',
     namespace: 'digital-life',
     timeoutMs: 5000,
+  },
+  maintenance: {
+    enabled: false,
+    timezone: 'UTC',
+    intervalMs: 21_600_000,
   },
   connectors: {
     demo: {

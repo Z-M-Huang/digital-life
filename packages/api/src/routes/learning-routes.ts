@@ -37,13 +37,47 @@ export const createLearningRoutes = (runtime: DigitalLifeRuntime) => {
   );
 
   app.get('/learning/runs/:id/stream', async (context) => {
-    const events = await runtime.learningService.getRunEvents(context.req.param('id'));
+    const runId = context.req.param('id');
     return streamSSE(context, async (stream) => {
-      for (const event of events) {
-        await stream.writeSSE({
-          data: JSON.stringify(event.payload),
-          event: event.type,
+      let cursor = 0;
+      const terminalTypes = new Set(['done', 'error']);
+      const sleep = (ms: number) =>
+        new Promise<void>((resolve) => {
+          setTimeout(resolve, ms);
         });
+
+      // Poll the event log every 250ms; emit any new entries; stop on done/error
+      // or after 60 idle ticks (~15 seconds with no progress) so abandoned
+      // streams don't hang HTTP/2 connections forever.
+      let idleTicks = 0;
+      let lastEmittedType: string | undefined;
+      while (!stream.aborted) {
+        const events = await runtime.learningService.getRunEvents(runId);
+        const newEvents = events.slice(cursor);
+        cursor = events.length;
+        if (newEvents.length === 0) {
+          idleTicks += 1;
+        } else {
+          idleTicks = 0;
+        }
+        for (const event of newEvents) {
+          await stream.writeSSE({
+            data: JSON.stringify(event.payload),
+            event: event.type,
+          });
+          lastEmittedType = event.type;
+        }
+        if (lastEmittedType && terminalTypes.has(lastEmittedType)) {
+          return;
+        }
+        if (idleTicks >= 60) {
+          await stream.writeSSE({
+            data: JSON.stringify({ message: 'stream timed out waiting for activity' }),
+            event: 'warning',
+          });
+          return;
+        }
+        await sleep(250);
       }
     });
   });

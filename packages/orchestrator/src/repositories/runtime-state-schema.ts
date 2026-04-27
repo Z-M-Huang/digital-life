@@ -67,6 +67,44 @@ const runtimeStateStatements = [
   )`,
   `create index if not exists learning_run_events_run_id_idx
     on learning_run_events (run_id, created_at)`,
+  `create table if not exists gaps (
+    id uuid primary key,
+    type text not null,
+    status text not null,
+    severity integer not null,
+    title text not null,
+    description text not null,
+    evidence_refs jsonb not null default '[]'::jsonb,
+    related_connector text,
+    related_scope text,
+    resolution_hint text,
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  )`,
+  `create table if not exists tool_needs (
+    id uuid primary key,
+    signal text not null,
+    detail text not null,
+    occurrences integer not null default 1,
+    last_seen_at timestamptz not null default now(),
+    metadata jsonb not null default '{}'::jsonb
+  )`,
+  `create table if not exists tool_proposals (
+    id uuid primary key,
+    type text not null,
+    status text not null,
+    title text not null,
+    problem text not null,
+    expected_value text not null,
+    risk text not null,
+    approval_required boolean not null default true,
+    evidence_refs jsonb not null default '[]'::jsonb,
+    implementation_plan jsonb not null default '[]'::jsonb,
+    metadata jsonb not null default '{}'::jsonb,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now()
+  )`,
 ];
 
 export const ensureRuntimeStateTables = async (database: DigitalLifeDatabase): Promise<void> => {

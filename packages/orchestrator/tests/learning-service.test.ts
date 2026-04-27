@@ -1,16 +1,17 @@
-import type { DenseMemClient, DigitalLifeConfig } from '@digital-life/core';
+import { createPassthroughLearnerClient } from '@digital-life/agents';
+import type { DigitalLifeConfig } from '@digital-life/core';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createInMemoryRuntimeStateRepository } from '../src/repositories/runtime-state-repository';
 import { createRuntime } from '../src/runtime/create-runtime';
-import { createTestConfig } from '../src/testing/create-test-runtime';
+import { createTestConfig, createTestDenseMemClient } from '../src/testing/create-test-runtime';
 
 describe('LearningService', () => {
   it('runs baseline, incremental, and resync learning modes with dense-mem writes', async () => {
     const mcpWrites: Record<string, unknown>[] = [];
-    const denseMemClient: DenseMemClient = {
+    const denseMemClient = createTestDenseMemClient({
       healthCheck: vi.fn(async () => true),
-    };
+    });
     const config: DigitalLifeConfig = {
       ...createTestConfig(),
       connectors: {
@@ -55,6 +56,7 @@ describe('LearningService', () => {
       }),
       config,
       denseMemClient,
+      llmClient: createPassthroughLearnerClient(),
       repository,
     });
 

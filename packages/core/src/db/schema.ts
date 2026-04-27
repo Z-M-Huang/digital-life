@@ -131,3 +131,44 @@ export const reflectionItemsTable = pgTable('reflection_items', {
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+export const gapsTable = pgTable('gaps', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  type: text('type').notNull(),
+  status: text('status').notNull(),
+  severity: integer('severity').notNull(),
+  title: text('title').notNull(),
+  description: text('description').notNull(),
+  evidenceRefs: jsonb('evidence_refs').$type<string[]>().notNull().default([]),
+  relatedConnector: text('related_connector'),
+  relatedScope: text('related_scope'),
+  resolutionHint: text('resolution_hint'),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const toolNeedsTable = pgTable('tool_needs', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  signal: text('signal').notNull(),
+  detail: text('detail').notNull(),
+  occurrences: integer('occurrences').notNull().default(1),
+  lastSeenAt: timestamp('last_seen_at', { withTimezone: true }).notNull().defaultNow(),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+});
+
+export const toolProposalsTable = pgTable('tool_proposals', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  type: text('type').notNull(),
+  status: text('status').notNull(),
+  title: text('title').notNull(),
+  problem: text('problem').notNull(),
+  expectedValue: text('expected_value').notNull(),
+  risk: text('risk').notNull(),
+  approvalRequired: boolean('approval_required').notNull().default(true),
+  evidenceRefs: jsonb('evidence_refs').$type<string[]>().notNull().default([]),
+  implementationPlan: jsonb('implementation_plan').$type<string[]>().notNull().default([]),
+  metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});

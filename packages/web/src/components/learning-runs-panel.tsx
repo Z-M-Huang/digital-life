@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import type { LearningRunEvent, LearningRunMode, LearningRunSummary } from '../app/use-dashboard';
 
@@ -22,6 +22,7 @@ export const LearningRunsPanel = ({
   const [logs, setLogs] = useState<LearningRunEvent[]>([]);
   const [pendingMode, setPendingMode] = useState<LearningRunMode | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string | null>(latestRunId);
+  const streamRef = useRef<EventSource | null>(null);
 
   const loadLogs = async (runId: string) => {
     setSelectedRunId(runId);
@@ -45,6 +46,43 @@ export const LearningRunsPanel = ({
 
     void loadLogs(latestRunId);
   }, [latestRunId]);
+
+  useEffect(() => {
+    streamRef.current?.close();
+    streamRef.current = null;
+    if (!selectedRunId || typeof EventSource === 'undefined') {
+      return;
+    }
+    const source = new EventSource(`/api/learning/runs/${selectedRunId}/stream`);
+    streamRef.current = source;
+    const onEvent = (eventType: LearningRunEvent['type']) => (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data) as Record<string, unknown>;
+        setLogs((current) => [
+          ...current,
+          { runId: selectedRunId, type: eventType, payload, createdAt: new Date().toISOString() },
+        ]);
+      } catch {
+        // ignore malformed SSE payloads
+      }
+    };
+    source.addEventListener('phase', onEvent('phase'));
+    source.addEventListener('progress', onEvent('progress'));
+    source.addEventListener('log', onEvent('log'));
+    source.addEventListener('warning', onEvent('warning'));
+    source.addEventListener('done', (event) => {
+      onEvent('done')(event as MessageEvent);
+      source.close();
+    });
+    source.addEventListener('error', (event) => {
+      onEvent('error')(event as MessageEvent);
+      source.close();
+    });
+    return () => {
+      source.close();
+      streamRef.current = null;
+    };
+  }, [selectedRunId]);
 
   const createRun = async (mode: LearningRunMode) => {
     setPendingMode(mode);

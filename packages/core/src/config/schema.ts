@@ -46,12 +46,29 @@ const streamableHttpTransportSchema = z.object({
   headers: recordOfString.default({}),
 });
 
+const mcpScopeDiscoveryConfigSchema = z.object({
+  toolIds: z.array(z.string().min(1)).min(1),
+  selectionKind: z.string().min(1).default('mcp-scope'),
+});
+
+const mcpLearningConfigSchema = z.object({
+  enumerateToolIds: z.array(z.string().min(1)).default([]),
+  fetchToolIds: z.array(z.string().min(1)).default([]),
+  defaultMode: z.enum(['baseline', 'incremental', 'resync']).default('baseline'),
+  supportedModes: z
+    .array(z.enum(['baseline', 'incremental', 'resync']))
+    .default(['baseline', 'incremental', 'resync']),
+});
+
 const mcpConnectorSchema = z.object({
   kind: z.literal('mcp'),
   enabled: z.boolean().default(true),
   transport: z.union([processTransportSchema, sseTransportSchema, streamableHttpTransportSchema]),
   headers: recordOfString.default({}),
   hardDeny: z.array(z.string()).default([]),
+  adapter: z.string().min(1).optional(),
+  scopeDiscovery: mcpScopeDiscoveryConfigSchema.optional(),
+  learning: mcpLearningConfigSchema.optional(),
 });
 
 const safetyDefaultsSchema = z.object({
@@ -68,6 +85,10 @@ export const digitalLifeConfigSchema = z.object({
   ai: z.object({
     model: z.string().min(1),
     temperature: z.number().min(0).max(2).default(0.2),
+    apiKey: z.string().optional(),
+    baseUrl: z.string().url().optional(),
+    maxOutputTokens: z.number().int().positive().optional(),
+    maxConcurrency: z.number().int().positive().default(4),
     promptOverrides: z.record(z.string(), z.string()).default({}),
   }),
   safety: z.object({
@@ -84,6 +105,33 @@ export const digitalLifeConfigSchema = z.object({
     namespace: z.string().min(1),
     timeoutMs: z.number().int().positive().default(8000),
   }),
+  maintenance: z
+    .object({
+      enabled: z.boolean().default(false),
+      timezone: z.string().min(1).default('UTC'),
+      intervalMs: z
+        .number()
+        .int()
+        .positive()
+        .default(6 * 60 * 60 * 1000),
+      quietHours: z
+        .object({
+          start: z.string().regex(/^\d{2}:\d{2}$/),
+          end: z.string().regex(/^\d{2}:\d{2}$/),
+        })
+        .optional(),
+      workingHours: z
+        .object({
+          start: z.string().regex(/^\d{2}:\d{2}$/),
+          end: z.string().regex(/^\d{2}:\d{2}$/),
+        })
+        .optional(),
+    })
+    .default({
+      enabled: false,
+      timezone: 'UTC',
+      intervalMs: 6 * 60 * 60 * 1000,
+    }),
   connectors: z.record(
     z.string(),
     z.union([builtinConnectorSchema, extensionConnectorSchema, mcpConnectorSchema]),

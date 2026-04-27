@@ -1,7 +1,17 @@
+import {
+  createDefaultLearners,
+  createPassthroughLearnerClient,
+  type LearnerAgent,
+  loadBuiltinPrompts,
+} from '@digital-life/agents';
 import { createDemoConnector, createUnifiedToolRegistry } from '@digital-life/connectors';
-import type { DenseMemClient } from '@digital-life/core';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
+
+const buildPassthroughLearners = async (): Promise<LearnerAgent[]> => {
+  const prompts = { ...(await loadBuiltinPrompts()), promptVersion: '1.test' };
+  return createDefaultLearners({ client: createPassthroughLearnerClient(), prompts });
+};
 
 import { createInMemoryKnowledgeRepository } from '../src/repositories/knowledge-repository';
 import { createInMemoryRuntimeStateRepository } from '../src/repositories/runtime-state-repository';
@@ -61,6 +71,8 @@ describe('service edge cases', () => {
       repository,
       createTestDenseMemClient(),
       knowledgeService,
+      await buildPassthroughLearners(),
+      undefined,
       async () => undefined,
     );
     const run = await learningService.createRun({
@@ -94,9 +106,9 @@ describe('service edge cases', () => {
 
   it('fails a learning run when dense-mem is unavailable', async () => {
     const repository = createInMemoryRuntimeStateRepository();
-    const denseMemClient: DenseMemClient = {
+    const denseMemClient = createTestDenseMemClient({
       healthCheck: vi.fn(async () => false),
-    };
+    });
     const connector = {
       id: 'demo',
       displayName: 'Demo',
@@ -139,6 +151,8 @@ describe('service edge cases', () => {
       repository,
       denseMemClient,
       knowledgeService,
+      await buildPassthroughLearners(),
+      undefined,
       async () => undefined,
     );
 

@@ -1,3 +1,14 @@
+import {
+  type ConsolidationAgent,
+  createCannedLearnerClient,
+  createConsolidationAgent,
+  createDefaultLearners,
+  createPassthroughLearnerClient,
+  createQueryAgent,
+  type LLMClient,
+  loadBuiltinPrompts,
+  type PromptBundle,
+} from '@digital-life/agents';
 import { createUnifiedToolRegistry } from '@digital-life/connectors';
 import {
   BootstrapService,
@@ -6,18 +17,31 @@ import {
   createInMemoryKnowledgeRepository,
   createInMemoryReflectionRepository,
   createInMemoryRuntimeStateRepository,
+  createInMemoryToolLearningRepository,
+  createScheduler,
   createTestConfig,
   createTestDenseMemClient,
   createTestRuntime,
   type DigitalLifeRuntime,
+  GapService,
   KnowledgeService,
   LearningService,
+  MaintenanceService,
   ReadinessService,
   ReflectionService,
   StartupService,
+  ToolLearningService,
 } from '@digital-life/orchestrator';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
+
+const buildTestPrompts = async (): Promise<PromptBundle> => ({
+  ...(await loadBuiltinPrompts()),
+  promptVersion: '1.test',
+});
+
+const buildTestLearners = async (client: LLMClient = createCannedLearnerClient()) =>
+  createDefaultLearners({ client, prompts: await buildTestPrompts() });
 
 import { createApp } from '../src/create-app';
 
@@ -61,6 +85,9 @@ const createGuardedRuntime = async (): Promise<DigitalLifeRuntime> => {
     reflectionRepository,
     repository,
   );
+  const llmClient = createPassthroughLearnerClient();
+  const prompts = await buildTestPrompts();
+  const learners = await buildTestLearners(llmClient);
   const learningService = new LearningService(
     config,
     connectors,
@@ -68,6 +95,8 @@ const createGuardedRuntime = async (): Promise<DigitalLifeRuntime> => {
     repository,
     createTestDenseMemClient(),
     knowledgeService,
+    learners,
+    undefined,
     async () => {
       await readinessService.recompute();
       await reflectionService.recompute();
@@ -86,7 +115,28 @@ const createGuardedRuntime = async (): Promise<DigitalLifeRuntime> => {
     () => readinessService.getReadiness(),
     () => reflectionService.recompute(),
   );
-  const chatService = new ChatService(knowledgeService, knowledgeRepository);
+  const queryAgent = createQueryAgent({ client: llmClient, prompts });
+  const consolidationAgent: ConsolidationAgent = createConsolidationAgent({
+    client: llmClient,
+    prompts,
+  });
+  const chatService = new ChatService(knowledgeService, knowledgeRepository, queryAgent, llmClient);
+  const maintenanceService = new MaintenanceService({
+    connectors,
+    denseMemClient: createTestDenseMemClient(),
+    learningService,
+    reflectionService,
+    readinessService,
+  });
+  const scheduler = createScheduler({
+    config: config.maintenance,
+    task: async () => {
+      await maintenanceService.runCycle();
+    },
+  });
+  const toolLearningRepository = createInMemoryToolLearningRepository();
+  const gapService = new GapService(toolLearningRepository, reflectionService);
+  const toolLearningService = new ToolLearningService(toolLearningRepository);
 
   return {
     bootstrapService,
@@ -94,8 +144,14 @@ const createGuardedRuntime = async (): Promise<DigitalLifeRuntime> => {
     config,
     connectorService,
     connectors,
+    consolidationAgent,
+    gapService,
     knowledgeRepository,
     knowledgeService,
+    llmClient,
+    maintenanceService,
+    prompts,
+    queryAgent,
     reflectionRepository,
     reflectionService,
     learningService,
@@ -103,7 +159,10 @@ const createGuardedRuntime = async (): Promise<DigitalLifeRuntime> => {
     readinessService,
     registry,
     repository,
+    scheduler,
     startupService,
+    toolLearningRepository,
+    toolLearningService,
   };
 };
 
