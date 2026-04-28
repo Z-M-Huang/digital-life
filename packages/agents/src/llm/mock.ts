@@ -1,4 +1,4 @@
-import type { GenerateObjectResult } from 'ai';
+import type { GenerateObjectResult, ModelMessage } from 'ai';
 import type { z } from 'zod';
 
 import type { LLMCallContext, LLMClient } from './client';
@@ -33,8 +33,28 @@ const defaultStreamText: LLMClient['streamText'] = () =>
 const FALLBACK_OBJECTS: ReadonlyArray<Record<string, unknown>> = [
   {},
   { fragments: [] },
-  { mode: 'abstention', answer: '', citedEvidenceIds: [], reflectionSignals: [] },
-  { mode: 'clarification', answer: '', clarificationQuestion: 'Could you provide more detail?' },
+  {
+    mode: 'abstention',
+    answer: '',
+    clarificationQuestion: null,
+    citedEvidenceIds: [],
+    reflectionSignals: [],
+  },
+  {
+    mode: 'clarification',
+    answer: '',
+    clarificationQuestion: 'Could you provide more detail?',
+    citedEvidenceIds: [],
+    reflectionSignals: [],
+  },
+  {
+    allowed: true,
+    reason: 'Mock grounding review allowed the draft.',
+    repairedMode: null,
+    repairedAnswer: '',
+    repairedClarificationQuestion: null,
+    repairedCitedEvidenceIds: [],
+  },
   { items: [] },
 ];
 
@@ -52,14 +72,30 @@ const defaultGenerateObject: MockObjectHandler = async ({ schema }) => {
   return { object: fallbackForSchema(schema) } as GenerateObjectResult<unknown>;
 };
 
+const promptFromMessages = (messages: ModelMessage[]): string =>
+  messages
+    .map((message) => {
+      const content =
+        typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+      return `${message.role}: ${content}`;
+    })
+    .join('\n\n');
+
 export const createMockLLMClient = (options: MockLLMClientOptions = {}): LLMClient => {
+  const generateObject = (options.generateObject ??
+    defaultGenerateObject) as LLMClient['generateObject'];
   return {
     modelId: options.modelId ?? 'mock-model',
     extractionVersion: options.extractionVersion ?? 'mock-1',
     generateText: options.generateText ?? defaultGenerateText,
     streamText: options.streamText ?? defaultStreamText,
-    generateObject: (options.generateObject ??
-      defaultGenerateObject) as LLMClient['generateObject'],
+    generateObject,
+    generateObjectFromMessages: ((params) =>
+      generateObject({
+        ...params,
+        system: '',
+        prompt: promptFromMessages(params.messages),
+      })) as LLMClient['generateObjectFromMessages'],
   };
 };
 
@@ -76,7 +112,9 @@ export const createCannedLearnerClient = (
   createMockLLMClient({
     async generateObject({ context, schema }) {
       const kind = context.promptId;
-      const fragments = fragmentsByKind[kind] ?? [];
+      const fragments = (fragmentsByKind[kind] ?? []).map((fragment) =>
+        fragmentForKind(kind, fragment.content, fragment.confidence, fragment),
+      );
       const parsed = schema.safeParse({ fragments });
       const object = parsed.success ? parsed.data : fallbackForSchema(schema);
       return { object } as GenerateObjectResult<unknown>;
@@ -109,7 +147,7 @@ const sentenceFragments = (text: string): string[] =>
  * without hitting a real model.
  */
 const queryAnswerFromPrompt = (prompt: string): string => {
-  const marker = 'Latest user message: ';
+  const marker = prompt.includes('They just said: ') ? 'They just said: ' : 'Latest user message: ';
   const start = prompt.indexOf(marker);
   if (start === -1) {
     return 'Grounded answer.';
@@ -120,11 +158,104 @@ const queryAnswerFromPrompt = (prompt: string): string => {
   return userText.length > 0 ? `Grounded answer for "${userText}".` : 'Grounded answer.';
 };
 
-const evidenceIsEmpty = (prompt: string): boolean => prompt.includes('(no evidence retrieved)');
+const evidenceIsEmpty = (prompt: string): boolean =>
+  prompt.includes('(no evidence retrieved)') || prompt.includes('(nothing on this topic)');
 
 const extractEvidenceIds = (prompt: string): string[] => {
-  const matches = prompt.matchAll(/(^|\n)-\s+id=([^\s]+)\s+score=/g);
-  return Array.from(matches, (match) => match[2] ?? '').filter((id) => id.length > 0);
+  const matches = prompt.matchAll(/(?:^|\n)-\s+(?:id=([^\s]+)\s+score=|\[([^\]]+)\])/g);
+  return Array.from(matches, (match) => match[1] ?? match[2] ?? '').filter((id) => id.length > 0);
+};
+
+const fragmentForKind = (
+  kind: string,
+  content: string,
+  confidence: number,
+  overrides: Record<string, unknown> = {},
+) => {
+  const base = {
+    ...overrides,
+    content,
+    confidence,
+    evidenceSpan:
+      typeof overrides.evidenceSpan === 'string' || overrides.evidenceSpan === null
+        ? overrides.evidenceSpan
+        : 'whole-material',
+  };
+
+  if (kind === 'factual') {
+    return {
+      ...base,
+      entities: Array.isArray(overrides.entities) ? overrides.entities : [],
+      subject: typeof overrides.subject === 'string' ? overrides.subject : null,
+      predicate: typeof overrides.predicate === 'string' ? overrides.predicate : null,
+      object: typeof overrides.object === 'string' ? overrides.object : null,
+    };
+  }
+
+  if (kind === 'style') {
+    return {
+      ...base,
+      toneMarkers: Array.isArray(overrides.toneMarkers) ? overrides.toneMarkers : [content],
+      exampleQuote:
+        typeof overrides.exampleQuote === 'string' || overrides.exampleQuote === null
+          ? overrides.exampleQuote
+          : content,
+    };
+  }
+
+  if (kind === 'behavior') {
+    return {
+      ...base,
+      pattern: typeof overrides.pattern === 'string' ? overrides.pattern : content,
+      instances: Array.isArray(overrides.instances) ? overrides.instances : ['whole-material'],
+    };
+  }
+
+  return {
+    ...base,
+    tradeoff: typeof overrides.tradeoff === 'string' ? overrides.tradeoff : null,
+    heuristic: typeof overrides.heuristic === 'string' ? overrides.heuristic : content,
+  };
+};
+
+const consolidationFragmentsFromPrompt = (prompt: string): Array<Record<string, unknown>> => {
+  const marker = 'Raw learner outputs (one JSON object per line):';
+  const start = prompt.indexOf(marker);
+  if (start === -1) {
+    return [];
+  }
+
+  const lines = prompt
+    .slice(start + marker.length)
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith('{') && line.endsWith('}'));
+
+  return lines.flatMap((line) => {
+    try {
+      const parsed = JSON.parse(line) as Record<string, unknown>;
+      const kind = typeof parsed.kind === 'string' ? parsed.kind : 'factual';
+      const content = typeof parsed.content === 'string' ? parsed.content : '';
+      const confidence = typeof parsed.confidence === 'number' ? parsed.confidence : 0.5;
+      if (content.length === 0) {
+        return [];
+      }
+
+      return [
+        {
+          kind,
+          content,
+          confidence,
+          authorities: typeof parsed.authority === 'string' ? [parsed.authority] : [],
+          sourceMaterialIds: typeof parsed.materialId === 'string' ? [parsed.materialId] : [],
+          evidenceSpans: typeof parsed.evidenceSpan === 'string' ? [parsed.evidenceSpan] : [],
+          status: confidence >= 0.6 ? 'claim' : 'fragment',
+        },
+      ];
+    } catch {
+      return [];
+    }
+  });
 };
 
 export const createPassthroughLearnerClient = (): LLMClient =>
@@ -137,11 +268,25 @@ export const createPassthroughLearnerClient = (): LLMClient =>
       }) as unknown as ReturnType<LLMClient['streamText']>,
     async generateObject({ context, prompt, schema }) {
       const kind = context.promptId;
+      if (kind === 'query-grounding-review') {
+        const parsed = schema.safeParse({
+          allowed: true,
+          reason: 'Mock grounding review allowed the draft.',
+          repairedMode: null,
+          repairedAnswer: '',
+          repairedClarificationQuestion: null,
+          repairedCitedEvidenceIds: [],
+        });
+        return {
+          object: parsed.success ? parsed.data : fallbackForSchema(schema),
+        } as GenerateObjectResult<unknown>;
+      }
       if (kind === 'query') {
         if (evidenceIsEmpty(prompt)) {
           const parsed = schema.safeParse({
             mode: 'abstention',
             answer: '',
+            clarificationQuestion: null,
             citedEvidenceIds: [],
             reflectionSignals: [],
           });
@@ -153,8 +298,18 @@ export const createPassthroughLearnerClient = (): LLMClient =>
         const parsed = schema.safeParse({
           mode: 'grounded',
           answer,
+          clarificationQuestion: null,
           citedEvidenceIds: extractEvidenceIds(prompt),
           reflectionSignals: [],
+        });
+        return {
+          object: parsed.success ? parsed.data : fallbackForSchema(schema),
+        } as GenerateObjectResult<unknown>;
+      }
+      if (kind === 'consolidation') {
+        const parsed = schema.safeParse({
+          fragments: consolidationFragmentsFromPrompt(prompt),
+          claims: [],
         });
         return {
           object: parsed.success ? parsed.data : fallbackForSchema(schema),
@@ -169,18 +324,8 @@ export const createPassthroughLearnerClient = (): LLMClient =>
       }
       const fragments =
         kind === 'factual'
-          ? sentences.map((sentence) => ({
-              content: sentence,
-              confidence: 0.8,
-              evidenceSpan: 'whole-material',
-            }))
-          : [
-              {
-                content: `${kind}-pattern: ${sentences[0]}`,
-                confidence: 0.65,
-                evidenceSpan: 'whole-material',
-              },
-            ];
+          ? sentences.map((sentence) => fragmentForKind(kind, sentence, 0.8))
+          : [fragmentForKind(kind, `${kind}-pattern: ${sentences[0]}`, 0.65)];
       const parsed = schema.safeParse({ fragments });
       const object = parsed.success ? parsed.data : fallbackForSchema(schema);
       return { object } as GenerateObjectResult<unknown>;

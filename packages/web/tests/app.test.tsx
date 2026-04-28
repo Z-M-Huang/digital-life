@@ -233,8 +233,8 @@ const createFetchMock = (state: MockState) =>
     }
 
     if (url.endsWith('/api/bootstrap/persona')) {
-      const payload = JSON.parse(String(init?.body)) as { name: string };
-      state.bootstrap.persona = { name: payload.name };
+      const payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      state.bootstrap.persona = payload;
       return new Response(JSON.stringify(state.bootstrap));
     }
 
@@ -404,27 +404,42 @@ describe('App', () => {
 
     await waitFor(() => expect(screen.getByText(/PARTIAL 80%/i)).toBeInTheDocument());
 
+    expect(screen.getByRole('tab', { name: 'Command Center' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    expect(screen.getByText('Maintenance Runs')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Sources' }));
+    await waitFor(() => expect(screen.getByText('Source Selection')).toBeInTheDocument());
     expect(screen.getByText('Persona and Baseline')).toBeInTheDocument();
     expect(screen.getByText('Startup Checks')).toBeInTheDocument();
-    expect(screen.getByText('Scope and Inventory')).toBeInTheDocument();
-    expect(screen.getByText('Runtime Policy')).toBeInTheDocument();
-    expect(screen.getByText('Maintenance Runs')).toBeInTheDocument();
-    expect(screen.getByText('Open Gaps')).toBeInTheDocument();
     expect(screen.getByText('Demo Connector')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Policies' }));
+    await waitFor(() => expect(screen.getByText('Runtime Policy')).toBeInTheDocument());
     expect(screen.getByText('writer.send')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Intelligence' }));
+    await waitFor(() => expect(screen.getByText('Evidence Search')).toBeInTheDocument());
+    expect(screen.getByText('Open Gaps')).toBeInTheDocument();
     expect(screen.getByText(/Missing connector scope/)).toBeInTheDocument();
-    expect(screen.getByText(/baseline learning source/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/baseline learning source/i)).toBeInTheDocument());
   });
 
   it('updates scope, governed tool policy, maintenance runs, and reflection controls', async () => {
     render(<App />);
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Sources' }));
     await waitFor(() => expect(screen.getByText('Demo Connector')).toBeInTheDocument());
 
     fireEvent.click(screen.getByLabelText('infra'));
-    fireEvent.click(screen.getByRole('button', { name: 'Save scope' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save sources' }));
 
     await waitFor(() => expect(screen.getByText(/2 selected/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Policies' }));
+    await waitFor(() => expect(screen.getByText('writer.send')).toBeInTheDocument());
 
     fireEvent.change(screen.getByLabelText('writer.send reason'), {
       target: { value: 'Operator approved for live testing' },
@@ -444,9 +459,11 @@ describe('App', () => {
       ).toBeInTheDocument(),
     );
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Command Center' }));
     fireEvent.click(screen.getByRole('button', { name: 'Run incremental' }));
     await waitFor(() => expect(screen.getByText('Selected run: run-2')).toBeInTheDocument());
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Intelligence' }));
     fireEvent.click(screen.getByRole('button', { name: 'Recompute reflection' }));
     await waitFor(() =>
       expect(screen.getByText(/Maintenance run recommended/)).toBeInTheDocument(),
@@ -455,6 +472,9 @@ describe('App', () => {
 
   it('submits a grounded chat query and renders evidence inline', async () => {
     render(<App />);
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Conversation' }));
+    await waitFor(() => expect(screen.getByLabelText('Chat query')).toBeInTheDocument());
 
     fireEvent.change(screen.getByLabelText('Chat query'), {
       target: { value: 'What is the baseline source?' },

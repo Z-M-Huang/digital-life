@@ -59,6 +59,14 @@ const createStubClient = (generateObject: LLMClient['generateObject']): LLMClien
     } as unknown as ReturnType<LLMClient['streamText']>;
   },
   generateObject,
+  generateObjectFromMessages: (async (params) =>
+    generateObject({
+      ...params,
+      system: '',
+      prompt: params.messages
+        .map((message) => `${message.role}: ${String(message.content)}`)
+        .join('\n\n'),
+    })) as LLMClient['generateObjectFromMessages'],
 });
 
 describe('mock LLM clients', () => {
@@ -251,13 +259,28 @@ describe('createQueryAgent', () => {
 
     expect(prompt.system.length).toBeGreaterThan(0);
     expect(prompt.prompt).toContain('(no prior turns)');
-    expect(prompt.prompt).toContain('(no evidence retrieved)');
-    expect(prompt.prompt).toContain('Persona slices: (none yet)');
+    expect(prompt.prompt).toContain('(nothing on this topic)');
+    expect(prompt.prompt).toContain('(no persona profile yet');
+    expect(prompt.messages[0]).toMatchObject({ role: 'system' });
   });
 
-  it('passes formatted prompt content and signal into generateObject', async () => {
+  it('passes system addendum, formatted messages, and signal into generateObject', async () => {
     const controller = new AbortController();
-    const generateObjectSpy = vi.fn(async (_params: unknown) => {
+    const generateObjectSpy = vi.fn(async (params: unknown) => {
+      const context = (params as { context?: { promptId?: string } }).context;
+      if (context?.promptId === 'query-grounding-review') {
+        return {
+          object: {
+            allowed: true,
+            reason: 'The cited draft is supported.',
+            repairedMode: null,
+            repairedAnswer: '',
+            repairedClarificationQuestion: null,
+            repairedCitedEvidenceIds: [],
+          },
+        };
+      }
+
       return {
         object: {
           mode: 'grounded',
@@ -280,6 +303,7 @@ describe('createQueryAgent', () => {
         evidence: [{ id: 'fact-1', content: 'Repository fact.', score: 0.91, kind: 'factual' }],
         conversation: [{ role: 'user', content: 'Hello' }],
         personaSlices: ['Prefers grounded answers'],
+        systemPromptAppendix: 'Use Simplified Chinese only.',
         signal: controller.signal,
       }),
     ).resolves.toMatchObject({
@@ -290,7 +314,7 @@ describe('createQueryAgent', () => {
 
     expect(generateObjectSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        prompt: expect.stringContaining('id=fact-1 score=0.91 kind=factual: Repository fact.'),
+        prompt: expect.stringContaining('Use Simplified Chinese only.'),
         context: expect.objectContaining({
           promptId: 'query',
           promptVersion: '1.test',
@@ -298,6 +322,211 @@ describe('createQueryAgent', () => {
         }),
       }),
     );
+  });
+
+  it('asks the grounding reviewer to repair unsupported uncited factual answers', async () => {
+    const generateObjectSpy = vi.fn(async (_params: unknown) => {
+      const callIndex = generateObjectSpy.mock.calls.length;
+      if (callIndex === 1) {
+        return {
+          object: {
+            mode: 'grounded',
+            answer: 'Last year I played Alpha Arena, Beta Royale, and Gamma Quest.',
+            clarificationQuestion: null,
+            citedEvidenceIds: ['not-a-real-fact'],
+            reflectionSignals: [],
+          },
+        };
+      }
+
+      return {
+        object: {
+          allowed: false,
+          reason: 'The draft named unsupported games.',
+          repairedMode: 'abstention',
+          repairedAnswer: 'I do not remember.',
+          repairedClarificationQuestion: null,
+          repairedCitedEvidenceIds: [],
+        },
+      };
+    });
+    const generateObject = (async (params) =>
+      generateObjectSpy(params)) as LLMClient['generateObject'];
+    const agent = createQueryAgent({
+      client: createStubClient(generateObject),
+      prompts: await buildPrompts(),
+    });
+
+    await expect(
+      agent.decide({
+        query: 'Which games did you play last year?',
+        evidence: [
+          {
+            id: 'fact-1',
+            content: 'The only known played game is Dream Journey.',
+            score: 0.91,
+            kind: 'factual',
+          },
+        ],
+        conversation: [],
+        systemPromptAppendix: 'Answer concisely.',
+      }),
+    ).resolves.toMatchObject({
+      mode: 'abstention',
+      answer: 'I do not remember.',
+      citedEvidenceIds: [],
+      reflectionSignals: [
+        expect.objectContaining({
+          category: 'missing_context',
+        }),
+      ],
+    });
+    expect(generateObjectSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows uncited identity answers when supported by persona slices', async () => {
+    const generateObjectSpy = vi.fn(async (_params: unknown) => {
+      const callIndex = generateObjectSpy.mock.calls.length;
+      if (callIndex === 1) {
+        return {
+          object: {
+            mode: 'grounded',
+            answer: 'I am Meeting.',
+            clarificationQuestion: null,
+            citedEvidenceIds: [],
+            reflectionSignals: [],
+          },
+        };
+      }
+
+      return {
+        object: {
+          allowed: true,
+          reason: 'The persona identity supports the name answer.',
+          repairedMode: null,
+          repairedAnswer: '',
+          repairedClarificationQuestion: null,
+          repairedCitedEvidenceIds: [],
+        },
+      };
+    });
+    const generateObject = (async (params) =>
+      generateObjectSpy(params)) as LLMClient['generateObject'];
+    const agent = createQueryAgent({
+      client: createStubClient(generateObject),
+      prompts: await buildPrompts(),
+    });
+
+    await expect(
+      agent.decide({
+        query: 'Who are you?',
+        evidence: [],
+        conversation: [],
+        personaSlices: ['Your name (persona display name): Meeting.'],
+      }),
+    ).resolves.toMatchObject({
+      mode: 'grounded',
+      answer: 'I am Meeting.',
+      citedEvidenceIds: [],
+    });
+    expect(generateObjectSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('passes uncited clarification through without hardcoded language fallbacks', async () => {
+    const generateObjectSpy = vi.fn(async (_params: unknown) => {
+      const callIndex = generateObjectSpy.mock.calls.length;
+      if (callIndex === 1) {
+        return {
+          object: {
+            mode: 'clarification',
+            answer: '',
+            clarificationQuestion: 'What do you mean?',
+            citedEvidenceIds: [],
+            reflectionSignals: [],
+          },
+        };
+      }
+
+      return {
+        object: {
+          allowed: true,
+          reason: 'The draft is only a generic clarification.',
+          repairedMode: null,
+          repairedAnswer: '',
+          repairedClarificationQuestion: null,
+          repairedCitedEvidenceIds: [],
+        },
+      };
+    });
+    const generateObject = (async (params) =>
+      generateObjectSpy(params)) as LLMClient['generateObject'];
+    const agent = createQueryAgent({
+      client: createStubClient(generateObject),
+      prompts: await buildPrompts(),
+    });
+
+    await expect(
+      agent.decide({
+        query: 'hey',
+        evidence: [],
+        conversation: [],
+      }),
+    ).resolves.toMatchObject({
+      mode: 'clarification',
+      answer: '',
+      clarificationQuestion: 'What do you mean?',
+      citedEvidenceIds: [],
+    });
+    expect(generateObjectSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('repairs uncited current-state filler in clarifications', async () => {
+    const generateObjectSpy = vi.fn(async (_params: unknown) => {
+      const callIndex = generateObjectSpy.mock.calls.length;
+      if (callIndex === 1) {
+        return {
+          object: {
+            mode: 'clarification',
+            answer: '',
+            clarificationQuestion: 'I am in a meeting. What do you need?',
+            citedEvidenceIds: [],
+            reflectionSignals: [],
+          },
+        };
+      }
+
+      return {
+        object: {
+          allowed: false,
+          reason: 'The draft claimed an unsupported current state.',
+          repairedMode: 'clarification',
+          repairedAnswer: '',
+          repairedClarificationQuestion: 'What do you need?',
+          repairedCitedEvidenceIds: [],
+        },
+      };
+    });
+    const generateObject = (async (params) =>
+      generateObjectSpy(params)) as LLMClient['generateObject'];
+    const agent = createQueryAgent({
+      client: createStubClient(generateObject),
+      prompts: await buildPrompts(),
+    });
+
+    await expect(
+      agent.decide({
+        query: 'hey',
+        evidence: [],
+        conversation: [],
+        personaSlices: ['Your name (persona display name): Meeting.'],
+      }),
+    ).resolves.toMatchObject({
+      mode: 'clarification',
+      answer: '',
+      clarificationQuestion: 'What do you need?',
+      citedEvidenceIds: [],
+    });
+    expect(generateObjectSpy).toHaveBeenCalledTimes(2);
   });
 });
 

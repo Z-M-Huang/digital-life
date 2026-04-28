@@ -102,6 +102,7 @@ describe('LearningRunsPanel', () => {
 
     render(
       <LearningRunsPanel
+        connectorIds={['demo']}
         latestRunId="run-1"
         onCreateRun={onCreateRun}
         onLoadRunLogs={onLoadRunLogs}
@@ -144,6 +145,7 @@ describe('LearningRunsPanel', () => {
 
     render(
       <LearningRunsPanel
+        connectorIds={['demo']}
         latestRunId="run-1"
         onCreateRun={onCreateRun}
         onLoadRunLogs={onLoadRunLogs}

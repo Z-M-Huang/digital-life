@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import type { QueryAgent } from '@digital-life/agents';
 
+import { createInMemoryKnowledgeRepository } from '../src/repositories/knowledge-repository';
+import type { BootstrapService } from '../src/services/bootstrap-service';
+import { ChatService, type ChatStreamEvent } from '../src/services/chat-service';
+import type { KnowledgeSearchResult, KnowledgeService } from '../src/services/knowledge-service';
 import { createTestRuntime } from '../src/testing/create-test-runtime';
 
 describe('knowledge and chat services', () => {
@@ -74,5 +79,85 @@ describe('knowledge and chat services', () => {
     }
 
     expect(missingConversationEvents[0].payload.message).toContain('Unknown conversation');
+  });
+
+  it('uses manual context as chat evidence', async () => {
+    const runtime = await createTestRuntime();
+    await runtime.bootstrapService.saveManualContext([
+      { source: 'operator', text: 'The persona only played Dream Journey.' },
+    ]);
+
+    const chat = await runtime.chatService.query({
+      query: 'Which game did the persona play?',
+    });
+
+    expect(chat.evidence.map((entry) => entry.id)).toContain('manual-context-1');
+    expect(chat.conversation.messages[1]?.evidenceFactIds).toContain('manual-context-1');
+  });
+
+  it('returns only cited evidence with chat responses', async () => {
+    const evidence: KnowledgeSearchResult[] = [
+      {
+        connectorIds: ['filesystem'],
+        content: 'The user only played Dream Journey.',
+        id: 'fact-1',
+        kind: 'factual',
+        score: 0.9,
+        sourceCount: 1,
+        sourceIds: ['source-1'],
+        updatedAt: new Date(),
+      },
+      {
+        connectorIds: ['filesystem'],
+        content: 'The user had no time to keep playing.',
+        id: 'fact-2',
+        kind: 'factual',
+        score: 0.7,
+        sourceCount: 1,
+        sourceIds: ['source-2'],
+        updatedAt: new Date(),
+      },
+    ];
+    const chatService = new ChatService(
+      {
+        search: async (query: string) => (query.trim().length > 0 ? evidence : []),
+      } as unknown as KnowledgeService,
+      createInMemoryKnowledgeRepository(),
+      {
+        buildAnswerPrompt: () => ({ messages: [], prompt: '', system: '' }),
+        decide: async () => ({
+          mode: 'grounded',
+          answer: 'Only Dream Journey.',
+          clarificationQuestion: null,
+          citedEvidenceIds: ['fact-1'],
+          reflectionSignals: [],
+        }),
+      } as QueryAgent,
+      {
+        getState: async () => ({
+          baselineRunId: null,
+          manualContext: [],
+          persona: { displayName: 'Meeting', systemPromptAppendix: 'Stay concise.' },
+          recommendedConnectors: [],
+          status: 'complete',
+          updatedAt: new Date(),
+        }),
+      } as unknown as BootstrapService,
+    );
+
+    const result = await chatService.query({ query: 'Which game did you play last year?' });
+    const streamEvents: ChatStreamEvent[] = [];
+    for await (const event of chatService.streamTokens({
+      query: 'Which game did you play last year?',
+    })) {
+      streamEvents.push(event);
+    }
+    const evidenceEvents = streamEvents.filter(
+      (event): event is Extract<ChatStreamEvent, { type: 'evidence' }> =>
+        event.type === 'evidence',
+    );
+
+    expect(result.evidence.map((entry) => entry.id)).toEqual(['fact-1']);
+    expect(evidenceEvents.map((event) => event.payload.id)).toEqual(['fact-1']);
   });
 });

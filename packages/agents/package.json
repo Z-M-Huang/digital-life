@@ -14,6 +14,7 @@
   "dependencies": {
     "@ai-sdk/openai": "latest",
     "@digital-life/core": "workspace:*",
+    "agentool": "^1.3.0",
     "ai": "latest",
     "zod": "latest"
   }

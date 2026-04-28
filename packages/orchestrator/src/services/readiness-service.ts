@@ -22,10 +22,14 @@ export class ReadinessService {
     const readiness = await this.recompute();
     const scopes = await this.repository.listConnectorScopes();
     const runs = await this.repository.listLearningRuns();
+    const connectorIds = new Set(this.connectors.map((connector) => connector.id));
+    const currentScopes = Object.entries(scopes)
+      .filter(([connectorId]) => connectorIds.has(connectorId))
+      .map(([, scope]) => scope);
 
     return {
       connectors: this.connectors.length,
-      scopedConnectors: Object.values(scopes).filter((scope) => scope.length > 0).length,
+      scopedConnectors: currentScopes.filter((scope) => scope.length > 0).length,
       tools: this.registry.listTools().length,
       readiness,
       latestRunId: runs[0]?.id ?? null,
@@ -41,6 +45,10 @@ export class ReadinessService {
     const bootstrap = await this.repository.getBootstrapState();
     const scopes = await this.repository.listConnectorScopes();
     const runs = await this.repository.listLearningRuns();
+    const connectorIds = new Set(this.connectors.map((connector) => connector.id));
+    const currentScopes = Object.entries(scopes)
+      .filter(([connectorId]) => connectorIds.has(connectorId))
+      .map(([, scope]) => scope);
     const blockers: string[] = [];
     const warnings: string[] = [];
 
@@ -52,7 +60,7 @@ export class ReadinessService {
       blockers.push('Persona is not defined.');
     }
 
-    if (Object.values(scopes).every((scope) => scope.length === 0)) {
+    if (currentScopes.length === 0 || currentScopes.every((scope) => scope.length === 0)) {
       warnings.push('No connector scope selected yet.');
     }
 

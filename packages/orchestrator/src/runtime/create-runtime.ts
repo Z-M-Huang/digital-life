@@ -302,7 +302,6 @@ export const createRuntime = async ({
     knowledgeService,
     knowledgeRepository,
     queryAgent,
-    llmClient,
     bootstrapService,
   );
   const maintenanceService = new MaintenanceService({

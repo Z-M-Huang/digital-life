@@ -120,7 +120,12 @@ const createGuardedRuntime = async (): Promise<DigitalLifeRuntime> => {
     client: llmClient,
     prompts,
   });
-  const chatService = new ChatService(knowledgeService, knowledgeRepository, queryAgent, llmClient);
+  const chatService = new ChatService(
+    knowledgeService,
+    knowledgeRepository,
+    queryAgent,
+    bootstrapService,
+  );
   const maintenanceService = new MaintenanceService({
     connectors,
     denseMemClient: createTestDenseMemClient(),
@@ -297,6 +302,10 @@ describe('API app', () => {
       body: JSON.stringify({ query: 'Tell me about a missing system' }),
       headers: { 'content-type': 'application/json' },
     });
+    const chatJson = (await chatResponse.json()) as {
+      answer: string;
+      clarificationRequest: string | null;
+    };
     const conversationResponse = await app.request('/api/chat/conversations/convo-1');
 
     expect((await connectorResponse.json()).id).toBe('demo');
@@ -309,9 +318,8 @@ describe('API app', () => {
     expect(await knowledgeResponse.json()).toEqual([]);
     expect(factResponse.status).toBe(404);
     expect((await communitiesResponse.json()).length).toBeGreaterThan(0);
-    expect((await chatResponse.json()).clarificationRequest).toContain(
-      'No grounded evidence matched',
-    );
+    expect(chatJson.answer).toBe('');
+    expect(chatJson.clarificationRequest).toContain('No grounded evidence matched');
     expect(conversationResponse.status).toBe(404);
   });
 

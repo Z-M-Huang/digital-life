@@ -14,7 +14,14 @@ export class BootstrapService {
   ) {}
 
   async getState(): Promise<BootstrapState> {
-    return this.repository.getBootstrapState();
+    const state = await this.repository.getBootstrapState();
+    const configuredConnectorIds = new Set(this.connectors.map((connector) => connector.id));
+    return {
+      ...state,
+      recommendedConnectors: state.recommendedConnectors.filter((connectorId) =>
+        configuredConnectorIds.has(connectorId),
+      ),
+    };
   }
 
   async saveManualContext(entries: Array<Record<string, unknown>>): Promise<BootstrapState> {

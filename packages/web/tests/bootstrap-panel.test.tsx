@@ -32,12 +32,19 @@ describe('BootstrapPanel', () => {
     );
 
     expect(screen.getByLabelText('Persona name')).toHaveValue('Digital Life');
+    expect(screen.getByLabelText('System prompt additions')).toHaveValue('');
 
     fireEvent.click(screen.getByRole('button', { name: 'Add context' }));
     expect(onAddManualContext).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole('button', { name: 'Save persona' }));
-    await waitFor(() => expect(onSavePersona).toHaveBeenCalledWith('Digital Life'));
+    await waitFor(() =>
+      expect(onSavePersona).toHaveBeenCalledWith({
+        displayName: 'Digital Life',
+        name: 'Digital Life',
+        systemPromptAppendix: '',
+      }),
+    );
   });
 
   it('submits persona, manual context, and baseline actions successfully', async () => {
@@ -56,7 +63,7 @@ describe('BootstrapPanel', () => {
             { source: 'operator', text: 'Three' },
             { source: 'operator', text: 'Four' },
           ],
-          persona: { name: 'Operator Persona' },
+          persona: { name: 'Operator Persona', systemPromptAppendix: 'Stay concise.' },
         }}
         onAddManualContext={onAddManualContext}
         onSavePersona={onSavePersona}
@@ -71,8 +78,18 @@ describe('BootstrapPanel', () => {
     fireEvent.change(screen.getByLabelText('Persona name'), {
       target: { value: 'Updated Persona' },
     });
+    expect(screen.getByLabelText('System prompt additions')).toHaveValue('Stay concise.');
+    fireEvent.change(screen.getByLabelText('System prompt additions'), {
+      target: { value: 'Use Simplified Chinese only.' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Save persona' }));
-    await waitFor(() => expect(onSavePersona).toHaveBeenCalledWith('Updated Persona'));
+    await waitFor(() =>
+      expect(onSavePersona).toHaveBeenCalledWith({
+        displayName: 'Updated Persona',
+        name: 'Updated Persona',
+        systemPromptAppendix: 'Use Simplified Chinese only.',
+      }),
+    );
 
     fireEvent.change(screen.getByLabelText('Manual context'), {
       target: { value: 'Seed this into the bootstrap context.' },

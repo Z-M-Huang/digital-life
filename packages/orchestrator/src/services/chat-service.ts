@@ -1,7 +1,6 @@
 import type {
   ConversationTurn,
   EvidenceItem,
-  LLMClient,
   QueryAgent,
   QueryAgentOutput,
   ReflectionSignal,
@@ -53,6 +52,16 @@ const evidenceFromSearch = (search: KnowledgeSearchResult): EvidenceItem => ({
   connectorIds: search.connectorIds,
 });
 
+const citedEvidenceFromDecision = (
+  evidence: KnowledgeSearchResult[],
+  citedEvidenceIds: string[],
+): KnowledgeSearchResult[] => {
+  const evidenceById = new Map(evidence.map((entry) => [entry.id, entry]));
+  return citedEvidenceIds
+    .map((id) => evidenceById.get(id))
+    .filter((entry): entry is KnowledgeSearchResult => Boolean(entry));
+};
+
 const turnsFromConversation = (conversation: ConversationRecord): ConversationTurn[] =>
   conversation.messages
     .filter((message) => message.role === 'user' || message.role === 'assistant')
@@ -62,6 +71,7 @@ const turnsFromConversation = (conversation: ConversationRecord): ConversationTu
     }));
 
 const FALLBACK_CLARIFICATION = 'Ask a specific question about learned material.';
+const MANUAL_CONTEXT_LIMIT = 5;
 const PERSONA_STYLE_LIMIT = 5;
 const PERSONA_BEHAVIOR_LIMIT = 3;
 const PERSONA_REASONING_LIMIT = 2;
@@ -71,12 +81,21 @@ const personaFieldString = (persona: Record<string, unknown>, key: string): stri
   return typeof value === 'string' && value.trim().length > 0 ? value : undefined;
 };
 
+const manualContextText = (entry: Record<string, unknown>): string | undefined => {
+  const text = entry.text;
+  if (typeof text === 'string' && text.trim().length > 0) {
+    return text.trim();
+  }
+
+  const serialized = JSON.stringify(entry);
+  return serialized === '{}' ? undefined : serialized;
+};
+
 export class ChatService {
   constructor(
     private readonly knowledgeService: KnowledgeService,
     private readonly repository: KnowledgeRepository,
     private readonly queryAgent: QueryAgent,
-    private readonly llmClient: LLMClient,
     private readonly bootstrapService: BootstrapService,
   ) {}
 
@@ -85,11 +104,13 @@ export class ChatService {
     try {
       const state = await this.bootstrapService.getState();
       const persona = state.persona ?? {};
-      const displayName = personaFieldString(persona, 'displayName') ?? 'unnamed user';
-      const language = personaFieldString(persona, 'language');
+      const displayName =
+        personaFieldString(persona, 'displayName') ??
+        personaFieldString(persona, 'name') ??
+        'unnamed user';
       const timezone = personaFieldString(persona, 'timezone');
       const idLine = `Your name (persona display name): ${displayName}.`;
-      const localeBits = [language ? `language: ${language}` : null, timezone ? `timezone: ${timezone}` : null].filter(
+      const localeBits = [timezone ? `timezone: ${timezone}` : null].filter(
         (entry): entry is string => entry !== null,
       );
       slices.push(idLine);
@@ -119,6 +140,43 @@ export class ChatService {
     return slices;
   }
 
+  private async loadSystemPromptAppendix(): Promise<string | undefined> {
+    try {
+      const state = await this.bootstrapService.getState();
+      return personaFieldString(state.persona ?? {}, 'systemPromptAppendix');
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async loadManualContextEvidence(): Promise<KnowledgeSearchResult[]> {
+    try {
+      const state = await this.bootstrapService.getState();
+      return state.manualContext
+        .map((entry, index): KnowledgeSearchResult | null => {
+          const content = manualContextText(entry);
+          if (!content) {
+            return null;
+          }
+
+          return {
+            connectorIds: [],
+            content,
+            id: `manual-context-${index + 1}`,
+            kind: 'manual',
+            score: 1,
+            sourceCount: 1,
+            sourceIds: ['manual-context'],
+            updatedAt: state.updatedAt,
+          };
+        })
+        .filter((entry): entry is KnowledgeSearchResult => Boolean(entry))
+        .slice(-MANUAL_CONTEXT_LIMIT);
+    } catch {
+      return [];
+    }
+  }
+
   async getConversation(conversationId: string): Promise<ConversationRecord | null> {
     return this.repository.getConversation(conversationId);
   }
@@ -136,10 +194,15 @@ export class ChatService {
     const conversation = conversationId
       ? await this.loadConversation(conversationId)
       : await this.repository.createConversation();
-    const evidence =
+    const retrievedEvidence =
       trimmedQuery.length === 0 ? [] : await this.knowledgeService.search(trimmedQuery, 5);
+    const manualEvidence =
+      trimmedQuery.length === 0 ? [] : await this.loadManualContextEvidence();
+    const evidence = [...manualEvidence, ...retrievedEvidence];
 
     const personaSlices = trimmedQuery.length === 0 ? [] : await this.loadPersonaSlices();
+    const systemPromptAppendix =
+      trimmedQuery.length === 0 ? undefined : await this.loadSystemPromptAppendix();
     const decision: QueryAgentOutput =
       trimmedQuery.length === 0
         ? {
@@ -154,8 +217,10 @@ export class ChatService {
             evidence: evidence.map(evidenceFromSearch),
             conversation: turnsFromConversation(conversation),
             personaSlices,
+            ...(systemPromptAppendix ? { systemPromptAppendix } : {}),
             ...(signal ? { signal } : {}),
           });
+    const citedEvidence = citedEvidenceFromDecision(evidence, decision.citedEvidenceIds);
 
     const clarificationRequest =
       decision.mode === 'clarification'
@@ -182,7 +247,7 @@ export class ChatService {
       answer,
       clarificationRequest,
       conversation: updatedConversation,
-      evidence,
+      evidence: citedEvidence,
       mode: decision.mode,
       reflectionSignals: decision.reflectionSignals,
     };
@@ -273,19 +338,22 @@ export class ChatService {
     const conversation = input.conversationId
       ? await this.loadConversation(input.conversationId)
       : await this.repository.createConversation();
-    const evidence = await this.knowledgeService.search(trimmedQuery, 5);
-
-    for (const item of evidence) {
-      yield { type: 'evidence', payload: item };
-    }
+    const [manualEvidence, retrievedEvidence] = await Promise.all([
+      this.loadManualContextEvidence(),
+      this.knowledgeService.search(trimmedQuery, 5),
+    ]);
+    const evidence = [...manualEvidence, ...retrievedEvidence];
 
     const personaSlices = await this.loadPersonaSlices();
+    const systemPromptAppendix = await this.loadSystemPromptAppendix();
     const decision = await this.queryAgent.decide({
       query: trimmedQuery,
       evidence: evidence.map(evidenceFromSearch),
       conversation: turnsFromConversation(conversation),
       personaSlices,
+      ...(systemPromptAppendix ? { systemPromptAppendix } : {}),
     });
+    const citedEvidence = citedEvidenceFromDecision(evidence, decision.citedEvidenceIds);
 
     const clarificationRequest =
       decision.mode === 'clarification'
@@ -293,14 +361,25 @@ export class ChatService {
         : null;
     const answerText = clarificationRequest ?? decision.answer.trim();
 
-    // Emit the answer in fixed-size text deltas so the frontend can render
-    // progressively without any whitespace fudging.
-    const deltaSize = 24;
-    for (let offset = 0; offset < answerText.length; offset += deltaSize) {
+    if (clarificationRequest) {
       yield {
-        type: 'text_delta',
-        payload: { delta: answerText.slice(offset, offset + deltaSize) },
+        type: 'clarification_request',
+        payload: { message: clarificationRequest },
       };
+    } else {
+      // Emit the answer in fixed-size text deltas so the frontend can render
+      // progressively without any whitespace fudging.
+      const deltaSize = 24;
+      for (let offset = 0; offset < answerText.length; offset += deltaSize) {
+        yield {
+          type: 'text_delta',
+          payload: { delta: answerText.slice(offset, offset + deltaSize) },
+        };
+      }
+    }
+
+    for (const item of citedEvidence) {
+      yield { type: 'evidence', payload: item };
     }
 
     for (const signal of decision.reflectionSignals) {
@@ -323,10 +402,10 @@ export class ChatService {
     yield {
       type: 'done',
       payload: {
-        answer: decision.answer,
+        answer: clarificationRequest ? '' : decision.answer,
         clarificationRequest,
         conversationId: updatedConversation.id,
-        evidenceCount: evidence.length,
+        evidenceCount: citedEvidence.length,
         mode: decision.mode,
       },
     };

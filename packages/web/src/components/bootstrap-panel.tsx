@@ -10,18 +10,28 @@ export const BootstrapPanel = ({
 }: {
   bootstrap: BootstrapData;
   onAddManualContext: (text: string) => Promise<unknown>;
-  onSavePersona: (name: string) => Promise<unknown>;
+  onSavePersona: (persona: Record<string, unknown>) => Promise<unknown>;
   onStartBaseline: () => Promise<unknown>;
 }) => {
-  const [personaName, setPersonaName] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [manualContext, setManualContext] = useState('');
+  const [systemPromptAppendix, setSystemPromptAppendix] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
 
   useEffect(() => {
-    setPersonaName(
-      typeof bootstrap.persona.name === 'string' ? bootstrap.persona.name : 'Digital Life',
-    );
+    const personaDisplayName =
+      typeof bootstrap.persona.displayName === 'string'
+        ? bootstrap.persona.displayName
+        : typeof bootstrap.persona.name === 'string'
+          ? bootstrap.persona.name
+          : 'Digital Life';
+    const personaSystemPromptAppendix =
+      typeof bootstrap.persona.systemPromptAppendix === 'string'
+        ? bootstrap.persona.systemPromptAppendix
+        : '';
+    setDisplayName(personaDisplayName);
+    setSystemPromptAppendix(personaSystemPromptAppendix);
   }, [bootstrap.persona]);
 
   const handlePersonaSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -29,7 +39,17 @@ export const BootstrapPanel = ({
     setPendingAction('persona');
 
     try {
-      await onSavePersona(personaName.trim() || 'Digital Life');
+      const trimmedDisplayName = displayName.trim() || 'Digital Life';
+      const persona = { ...bootstrap.persona };
+      delete persona.language;
+      delete persona.name;
+      delete persona.systemPromptAppendix;
+      await onSavePersona({
+        ...persona,
+        displayName: trimmedDisplayName,
+        name: trimmedDisplayName,
+        systemPromptAppendix: systemPromptAppendix.trim(),
+      });
       setError(null);
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : 'Persona update failed');
@@ -74,13 +94,26 @@ export const BootstrapPanel = ({
       <p>Bootstrap status: {bootstrap.status}</p>
       <p>Recommended connectors: {bootstrap.recommendedConnectors.join(', ') || 'None'}</p>
       <p>Baseline run: {bootstrap.baselineRunId ?? 'Not started'}</p>
-      <form className="inline-form" onSubmit={handlePersonaSubmit}>
-        <input
-          aria-label="Persona name"
-          onChange={(event) => setPersonaName(event.target.value)}
-          placeholder="Persona name"
-          value={personaName}
-        />
+      <form className="persona-form" onSubmit={handlePersonaSubmit}>
+        <label className="field-label">
+          <span>Persona name</span>
+          <input
+            aria-label="Persona name"
+            onChange={(event) => setDisplayName(event.target.value)}
+            placeholder="Persona name"
+            value={displayName}
+          />
+        </label>
+        <label className="field-label field-label-wide">
+          <span>System prompt additions</span>
+          <textarea
+            aria-label="System prompt additions"
+            onChange={(event) => setSystemPromptAppendix(event.target.value)}
+            placeholder="Add instructions to append to the chat system prompt"
+            rows={4}
+            value={systemPromptAppendix}
+          />
+        </label>
         <button disabled={pendingAction === 'persona'} type="submit">
           Save persona
         </button>
@@ -89,7 +122,7 @@ export const BootstrapPanel = ({
         <textarea
           aria-label="Manual context"
           onChange={(event) => setManualContext(event.target.value)}
-          placeholder="Add manual seed context"
+          placeholder="Add learning seed context"
           rows={3}
           value={manualContext}
         />

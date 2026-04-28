@@ -272,10 +272,10 @@ export const useDashboardData = () => {
         }),
       );
     },
-    savePersona(name: string) {
+    savePersona(persona: Record<string, unknown>) {
       return performMutation(() =>
         fetchJson<BootstrapData>('/api/bootstrap/persona', {
-          body: JSON.stringify({ name }),
+          body: JSON.stringify(persona),
           headers: { 'content-type': 'application/json' },
           method: 'POST',
         }),

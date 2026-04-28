@@ -49,7 +49,7 @@ export const ConnectorScopePanel = ({
       await onSaveScope(connector.id, nextScope);
       setError(null);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : 'Scope update failed');
+      setError(saveError instanceof Error ? saveError.message : 'Source update failed');
     } finally {
       setPendingConnectorId(null);
     }
@@ -58,8 +58,8 @@ export const ConnectorScopePanel = ({
   return (
     <div className="stack">
       <p className="muted">
-        Static connector registration stays read-only. Scope selection is a runtime-only operator
-        choice.
+        Static connector registration stays read-only. Source selection controls what learning runs
+        may read.
       </p>
       {connectors.map((connector) => (
         <article className="result-card" key={connector.id}>
@@ -82,14 +82,14 @@ export const ConnectorScopePanel = ({
               ))}
             </div>
           ) : (
-            <p className="muted">No scope discovery options are available for this connector.</p>
+            <p className="muted">No source options are available for this connector.</p>
           )}
           <button
             disabled={pendingConnectorId === connector.id || connector.scopeOptions.length === 0}
             onClick={() => void saveScope(connector)}
             type="button"
           >
-            Save scope
+            Save sources
           </button>
         </article>
       ))}

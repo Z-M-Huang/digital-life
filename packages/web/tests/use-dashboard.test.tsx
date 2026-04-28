@@ -163,8 +163,8 @@ const createHookFetchMock = (state: HookState) =>
       return new Response(JSON.stringify(state.bootstrap));
     }
     if (url.endsWith('/api/bootstrap/persona')) {
-      const payload = JSON.parse(String(init?.body)) as { name: string };
-      state.bootstrap.persona = { name: payload.name };
+      const payload = JSON.parse(String(init?.body)) as Record<string, unknown>;
+      state.bootstrap.persona = payload;
       return new Response(JSON.stringify(state.bootstrap));
     }
     if (url.endsWith('/api/bootstrap/manual-context')) {
@@ -268,9 +268,12 @@ describe('useDashboardData', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await act(async () => {
-      await result.current.savePersona('Updated Persona');
+      await result.current.savePersona({
+        displayName: 'Updated Persona',
+        systemPromptAppendix: 'Use Simplified Chinese only.',
+      });
     });
-    await waitFor(() => expect(state.bootstrap.persona.name).toBe('Updated Persona'));
+    await waitFor(() => expect(state.bootstrap.persona.displayName).toBe('Updated Persona'));
 
     await act(async () => {
       await result.current.addManualContext('New context');

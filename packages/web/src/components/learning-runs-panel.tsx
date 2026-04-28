@@ -8,11 +8,13 @@ const formatPayload = (payload: Record<string, unknown>) =>
     .join(' · ');
 
 export const LearningRunsPanel = ({
+  connectorIds,
   latestRunId,
   onCreateRun,
   onLoadRunLogs,
   runs,
 }: {
+  connectorIds: string[];
   latestRunId: string | null;
   onCreateRun: (mode: LearningRunMode) => Promise<{ id: string }>;
   onLoadRunLogs: (runId: string) => Promise<LearningRunEvent[]>;
@@ -97,6 +99,16 @@ export const LearningRunsPanel = ({
     }
   };
 
+  const formatRunConnectors = (run: LearningRunSummary) => {
+    const currentConnectorIds = run.connectorIds.filter((connectorId) =>
+      connectorIds.includes(connectorId),
+    );
+    if (currentConnectorIds.length > 0) {
+      return currentConnectorIds.join(', ');
+    }
+    return run.connectorIds.length > 0 ? 'previous connector config' : 'all connectors';
+  };
+
   return (
     <div className="stack">
       <div className="button-row">
@@ -122,7 +134,7 @@ export const LearningRunsPanel = ({
               {run.mode} · {run.status}
             </strong>
             <span className="muted">
-              {run.connectorIds.join(', ') || 'all connectors'} · {run.id}
+              {formatRunConnectors(run)} · {run.id}
             </span>
             <button onClick={() => void loadLogs(run.id)} type="button">
               {selectedRunId === run.id ? 'Reload logs' : 'View logs'}

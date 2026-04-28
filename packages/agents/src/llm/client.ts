@@ -1,16 +1,20 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import type { DigitalLifeConfig } from '@digital-life/core';
+import { compactMessages } from 'agentool/context-compaction';
 import {
   generateObject as aiGenerateObject,
   generateText as aiGenerateText,
   streamText as aiStreamText,
   type GenerateObjectResult,
   type LanguageModel,
+  type ModelMessage,
 } from 'ai';
 import type { z } from 'zod';
 
 type GenerateTextOutput = Awaited<ReturnType<typeof aiGenerateText>>;
 type StreamTextOutput = ReturnType<typeof aiStreamText>;
+const DEFAULT_MAX_CONTEXT_TOKENS = 128_000;
+const RECENT_MESSAGES_TO_KEEP = 8;
 
 export type LLMClientOptions = {
   apiKey: string;
@@ -18,6 +22,7 @@ export type LLMClientOptions = {
   modelId: string;
   temperature: number;
   maxOutputTokens?: number;
+  maxContextTokens?: number;
   extractionVersion?: string;
   modelFactory?: (options: LLMClientOptions) => LanguageModel;
 };
@@ -47,6 +52,11 @@ export type LLMClient = {
     schema: TSchema;
     context: LLMCallContext;
   }) => Promise<GenerateObjectResult<z.infer<TSchema>>>;
+  generateObjectFromMessages: <TSchema extends z.ZodTypeAny>(params: {
+    messages: ModelMessage[];
+    schema: TSchema;
+    context: LLMCallContext;
+  }) => Promise<GenerateObjectResult<z.infer<TSchema>>>;
 };
 
 export class LLMConfigurationError extends Error {
@@ -60,12 +70,8 @@ const buildModel = (options: LLMClientOptions): LanguageModel => {
   const provider = createOpenAI({
     apiKey: options.apiKey,
     ...(options.baseUrl ? { baseURL: options.baseUrl } : {}),
-    compatibility: 'compatible',
   });
-  // Disable strict JSON schema mode so zod schemas with .optional / .default /
-  // .min are accepted; AI SDK validates client-side instead of relying on
-  // OpenAI's strict structured-outputs validator.
-  return provider(options.modelId, { strictJsonSchema: false });
+  return provider.chat(options.modelId);
 };
 
 export const createLLMClient = (options: LLMClientOptions): LLMClient => {
@@ -78,6 +84,30 @@ export const createLLMClient = (options: LLMClientOptions): LLMClient => {
 
   const model = options.modelFactory ? options.modelFactory(options) : buildModel(options);
   const extractionVersion = options.extractionVersion ?? '1';
+  const maxContextTokens = options.maxContextTokens ?? DEFAULT_MAX_CONTEXT_TOKENS;
+
+  const compactForContext = (messages: ModelMessage[], context: LLMCallContext) =>
+    compactMessages({
+      messages,
+      maxContextTokens,
+      keepRecentMessages: RECENT_MESSAGES_TO_KEEP,
+      onCompactionFailure: 'passthrough',
+      summarize: async (olderHistory, targetTokens) => {
+        const result = await aiGenerateText({
+          model,
+          system: [
+            'Summarize the older chat history for continuation.',
+            'Preserve user intent, decisions, commitments, unresolved questions, and facts needed later.',
+            'Do not invent details. Keep the summary concise.',
+          ].join(' '),
+          messages: olderHistory,
+          temperature: 0,
+          maxOutputTokens: targetTokens,
+          ...(context.signal ? { abortSignal: context.signal } : {}),
+        });
+        return result.text;
+      },
+    });
 
   return {
     modelId: options.modelId,
@@ -107,6 +137,17 @@ export const createLLMClient = (options: LLMClientOptions): LLMClient => {
         model,
         system,
         prompt,
+        schema,
+        temperature: options.temperature,
+        ...(options.maxOutputTokens ? { maxOutputTokens: options.maxOutputTokens } : {}),
+        ...(context.signal ? { abortSignal: context.signal } : {}),
+      });
+    },
+    async generateObjectFromMessages({ messages, schema, context }) {
+      const compactedMessages = await compactForContext(messages, context);
+      return aiGenerateObject({
+        model,
+        messages: compactedMessages,
         schema,
         temperature: options.temperature,
         ...(options.maxOutputTokens ? { maxOutputTokens: options.maxOutputTokens } : {}),
